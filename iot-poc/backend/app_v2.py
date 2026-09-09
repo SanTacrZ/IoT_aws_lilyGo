@@ -850,47 +850,73 @@ def history_agg():
 DASHBOARD_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>AgroSense - Dashboard</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:1200px;margin:0 auto;padding:1rem;background:#0f172a;color:#e2e8f0}
-h1{font-size:1.4rem;margin:.2rem 0}small{color:#94a3b8}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin:1rem 0}
-.stat{background:#1e293b;border-radius:.7rem;padding:.7rem 1rem;text-align:center;cursor:pointer;transition:transform .15s}
-.stat:hover{transform:translateY(-2px)}
-.stat b{font-size:1.6rem;display:block}.stat span{font-size:.72rem;color:#94a3b8}
+body{font-family:system-ui,-apple-system,sans-serif;max-width:1280px;margin:0 auto;padding:1rem;color:#e2e8f0;
+  background:radial-gradient(1200px 800px at 80% -10%, #1e3a5f55, transparent), #0b1220}
+h1{font-size:1.35rem;margin:.2rem 0;letter-spacing:-.02em}
+h3{font-size:.95rem;margin:1.2rem 0 .5rem;color:#cbd5e1}
+small{color:#94a3b8}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem;margin:.8rem 0}
+.stat{background:linear-gradient(160deg,#1c2a44,#16213a);border:1px solid #ffffff10;border-radius:14px;padding:.65rem .9rem;
+  text-align:center;cursor:pointer;transition:transform .15s, box-shadow .15s}
+.stat:hover{transform:translateY(-2px);box-shadow:0 6px 18px #0006}
+.stat b{font-size:1.45rem;display:block;font-variant-numeric:tabular-nums}
+.stat span{font-size:.7rem;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase}
 .stat.alarm b{color:#f87171}
-.zone{background:#1e293b;border-radius:.8rem;padding:1rem;margin:1rem 0}
-.zone h3{margin:0 0 .2rem}.zonehead{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
-.chip{background:#334155;border-radius:999px;padding:.15rem .7rem;font-size:.72rem;color:#cbd5e1}
-.badge{font-size:.8rem;font-weight:600}.online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}.disabled{color:#94a3b8}
-.cards{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.7rem}
-.card{flex:1;min-width:135px;background:#334155;border-radius:.6rem;padding:.7rem;text-align:center;cursor:pointer;position:relative;transition:transform .15s}
-.card:hover{transform:translateY(-2px)}
-.card .lbl{font-size:.72rem;color:#94a3b8}
-.card .val{font-size:1.35rem;font-weight:700;margin:.15rem 0}
-.card .meta{font-size:.68rem;color:#94a3b8}
-.card .spark{margin-top:.3rem;height:34px}
-.card.warn{outline:2px solid #facc15}
-.card.crit{outline:2px solid #f87171}
-.up{color:#4ade80}.down{color:#f87171}.flat{color:#94a3b8}
-button{background:#475569;color:#fff;border:0;border-radius:.4rem;padding:.3rem .6rem;cursor:pointer;font-size:.75rem}
-button.primary{background:#16a34a}
-button.stop{background:#dc2626}
+.zone{background:linear-gradient(160deg,#1c2a44,#141d33);border:1px solid #ffffff10;border-radius:16px;
+  padding:1rem;margin:1rem 0;box-shadow:0 10px 30px #0005}
+.zonehead{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.zone h3{margin:0;font-size:1.05rem;color:#f1f5f9}
+.chip{background:#0f172a99;border:1px solid #ffffff14;border-radius:999px;padding:.2rem .7rem;font-size:.7rem;color:#cbd5e1}
+.chip b{color:#e2e8f0}
+.badge{font-size:.78rem;font-weight:700}.online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:.7rem;margin-top:.7rem}
+.card{background:linear-gradient(165deg,#2a3a57,#1e293b);border:1px solid #ffffff12;border-radius:14px;
+  padding:.8rem;text-align:center;cursor:pointer;position:relative;overflow:hidden;
+  transition:transform .16s, box-shadow .16s, border-color .16s}
+.card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,#38bdf8);opacity:.9}
+.card:hover{transform:translateY(-3px);box-shadow:0 10px 24px #0007;border-color:#38bdf840}
+.card.crit::before{background:#f87171}.card.warn::before{background:#facc15}.card.ok::before{background:#4ade80}
+.cardtop{display:flex;align-items:center;gap:.5rem;justify-content:flex-start;text-align:left}
+.icon{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;
+  background:#0f172a99;border:1px solid #ffffff14}
+.card .lbl{font-size:.7rem;color:#94a3b8;text-align:left;line-height:1.15}
+.card .lbl b{display:block;color:#e2e8f0;font-size:.72rem}
+.card .val{font-size:1.7rem;font-weight:800;margin:.25rem 0 .1rem;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.card .val small{font-size:.8rem;font-weight:600;color:#94a3b8;margin-left:.15rem}
+.meta{display:flex;gap:.35rem;justify-content:center;align-items:center;margin:.15rem 0}
+.trend{font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .5rem}
+.trend.up{color:#4ade80;background:#4ade8016}.trend.down{color:#f87171;background:#f8717116}.trend.flat{color:#94a3b8;background:#ffffff0d}
+.tchip{font-size:.65rem;color:#94a3b8}
+.gauge{position:relative;height:6px;border-radius:999px;background:#0f172acc;margin:.45rem .2rem .2rem;overflow:visible}
+.gauge .fill{position:absolute;inset:0 auto 0 0;border-radius:999px;background:var(--accent,#38bdf8)}
+.gauge .mark{position:absolute;top:-2px;bottom:-2px;width:2px;background:#ffffff88}
+.gauge .lab{position:absolute;top:9px;font-size:.58rem;color:#64748b}
+.gauge .lab.l{left:0}.gauge .lab.r{right:0}
+.spark{height:30px;margin-top:.5rem}
+.cardfoot{display:flex;justify-content:space-between;align-items:center;margin-top:.35rem}
+.cardfoot button{opacity:.85}
 .feed{display:flex;flex-direction:column;gap:.35rem}
-.ev{display:flex;gap:.6rem;align-items:center;background:#1e293b;border-radius:.5rem;padding:.45rem .7rem;font-size:.82rem}
+.ev{display:flex;gap:.6rem;align-items:center;background:linear-gradient(160deg,#1c2a44,#16213a);
+  border:1px solid #ffffff10;border-radius:10px;padding:.5rem .8rem;font-size:.82rem}
 .ev .t{margin-left:auto;font-size:.7rem;color:#94a3b8}
 .pill{border-radius:999px;padding:.1rem .55rem;font-size:.7rem}
 .pill.rule{background:#164e63;color:#67e8f9}.pill.manual{background:#3b0764;color:#d8b4fe}
-.pill.offline{background:#450a0a;color:#fca5a5}.pill.system{background:#1e3a8a;color:#93c5fd}
-.alert{background:#1e293b;border-radius:.5rem;padding:.5rem .8rem;margin:.3rem 0;font-size:.85rem}
+.pill.offline{background:#450a0a;color:#fca5a5}
+.alert{background:linear-gradient(160deg,#1c2a44,#16213a);border-radius:10px;padding:.5rem .8rem;margin:.3rem 0;font-size:.85rem}
 .alert.warn{border-left:4px solid #facc15}.alert.critical{border-left:4px solid #f87171}
 .alert.info{border-left:4px solid #38bdf8}
+button{background:#334155;color:#fff;border:1px solid #ffffff14;border-radius:9px;padding:.32rem .6rem;cursor:pointer;
+  font-size:.73rem;transition:filter .15s}
+button:hover{filter:brightness(1.2)}
+button.primary{background:#16a34a}button.stop{background:#dc2626}
 #toasts{position:fixed;bottom:1rem;right:1rem;display:flex;flex-direction:column;gap:.4rem;z-index:99}
-.toast{background:#16a34a;color:#fff;padding:.6rem 1rem;border-radius:.5rem;font-size:.85rem;animation:fadein .2s}
+.toast{background:#16a34a;color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.85rem;box-shadow:0 8px 20px #0007}
 .toast.err{background:#dc2626}
-@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
-#overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
-#chartbox{background:#1e293b;border-radius:.75rem;padding:1rem;width:min(720px,95vw)}
-canvas.chartbig{max-height:260px}
-.legend{display:flex;gap:1rem;font-size:.7rem;color:#94a3b8;margin:.3rem 0}
+#overlay{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:9}
+#chartbox{background:linear-gradient(160deg,#1c2a44,#141d33);border:1px solid #ffffff14;border-radius:16px;
+  padding:1rem;width:min(760px,95vw);box-shadow:0 20px 60px #0009}
+canvas.chartbig{max-height:250px}
+.legend{display:flex;gap:1rem;font-size:.68rem;color:#94a3b8;margin:.3rem 0}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head><body>
@@ -901,9 +927,9 @@ canvas.chartbig{max-height:260px}
   <span><i class="dot" style="background:#38bdf8"></i>saturado</span>
   <span><i class="dot" style="background:#facc15"></i>revisar</span>
 </div>
-<div id="stats" class="cards">Cargando…</div>
+<div id="stats" class="stats">Cargando…</div>
 <h3>🔔 Alertas abiertas</h3>
-<div id="alerts"><small>Sin alertas abiertas</small></div>
+<div id="alerts"><small>Cargando…</small></div>
 <h3>🗺️ Zonas y equipos</h3>
 <div id="root">Cargando…</div>
 <h3>📜 Actividad reciente</h3>
@@ -932,105 +958,122 @@ function ago(iso){
 const ICON = {soil:"🌱", temperature:"🌡", humidity:"💧", battery:"🔋", solar:"☀️", rain:"🌧", flow:"🚰", ph:"⚗️", ec:"⚡"};
 const NAME = {soil:"Humedad de suelo", temperature:"Temperatura", humidity:"Humedad aire",
               battery:"Batería", solar:"Radiación solar", rain:"Lluvia", flow:"Caudal", ph:"pH", ec:"EC"};
+// rango del medidor por tipo de sensor
+const RANGE = {temperature:[-5,45], humidity:[0,100], battery:[3.0,4.2], solar:[0,1000],
+               rain:[0,50], flow:[0,50], ph:[0,14], ec:[0,3000]};
+const COL = {ok:"#4ade80", warn:"#facc15", crit:"#f87171", def:"#38bdf8"};
 
 let zones = {}, stateData = [];
 
 async function refresh(){
   try{
     const [st, zs, stats] = await Promise.all([
-      api("/api/v2/state"), api("/api/v2/zones?limit=200").catch(()=>({})), api("/api/v2/stats").catch(()=>null)
+      api("/api/v2/state"), api("/api/v2/zones?limit=200").catch(()=>[]), api("/api/v2/stats").catch(()=>null)
     ]);
-    zones = {};
-    (zs.zones || zs || []).forEach(z => zones[z.zone_id] = z);
+    zones = {}; (zs || []).forEach(z => zones[z.zone_id] = z);
     stateData = st.devices;
-    renderStats(stats);
-    renderRoot();
+    renderStats(stats); renderRoot();
     if(sessionStorage.ADM) loadAlerts();
   }catch(e){ document.getElementById("root").innerHTML = "Error: " + e.message; }
 }
 function renderStats(s){
   if(!s) return;
   document.getElementById("stats").innerHTML = `
-    <div class="stat"><b><span class="online">${s.devices_online}</span>/${s.devices_total}</b><span>equipos en línea</span></div>
+    <div class="stat"><b><span class="online">${s.devices_online}</span>/${s.devices_total}</b><span>en línea</span></div>
     <div class="stat"><b>${s.irrigations_today}</b><span>riegos hoy</span></div>
-    <div class="stat"><b>${s.liters_today}L</b><span>agua usada hoy</span></div>
-    <div class="stat ${s.alerts_open ? "alarm" : ""}" onclick="loadAlerts()"><b>${s.alerts_open}</b><span>alertas abiertas</span></div>`;
+    <div class="stat"><b>${s.liters_today}L</b><span>agua hoy</span></div>
+    <div class="stat ${s.alerts_open ? "alarm" : ""}" onclick="loadAlerts()"><b>${s.alerts_open}</b><span>alertas</span></div>`;
 }
-function soilState(s, zone){
-  if (!zone || s.type !== "soil") return null;
+function sensorState(s, zone){
   const v = s.last_value;
-  if (v == null) return null;
-  if (v < zone.soil_min_pct) return {cls:"crit", tag:"SECAS"};
-  if (v > zone.soil_max_pct) return {cls:"warn", tag:"SATURADO"};
-  return {cls:"ok", tag:"OPTIMO"};
+  if (v == null) return {};
+  if (s.type === "soil" && zone){
+    if (v < zone.soil_min_pct) return {cls:"crit", tag:"SECAS"};
+    if (v > zone.soil_max_pct) return {cls:"warn", tag:"SATURADO"};
+    return {cls:"ok", tag:"ÓPTIMO"};
+  }
+  if (s.type === "battery" && v < 3.5) return {cls:"crit", tag:"BAJA"};
+  if (s.type === "temperature" && v > 35) return {cls:"warn", tag:"CALOR"};
+  return {};
+}
+function gaugeHtml(s, zone){
+  let lo, hi;
+  if (s.type === "soil") { lo = zone ? zone.soil_min_pct : 0; hi = zone ? zone.soil_max_pct : 100; }
+  else if (s.type in RANGE) { [lo, hi] = RANGE[s.type]; }
+  else return "";
+  const v = Math.max(lo, Math.min(hi, s.last_value ?? lo));
+  const pct = ((v - lo) / (hi - lo) * 100).toFixed(1);
+  return `<div class="gauge"><div class="fill" style="width:${pct}%"></div>
+    <div class="mark" style="left:${pct}%"></div>
+    <span class="lab l">${lo}</span><span class="lab r">${hi}</span></div>`;
 }
 function trend(s){
   if (s.prev == null || s.last_value == null) return "";
   const d = +(s.last_value - s.prev).toFixed(1);
-  if (Math.abs(d) < 0.05) return `<span class="flat">• estable</span>`;
-  return d > 0 ? `<span class="up">▲ +${d}</span>` : `<span class="down">▼ ${d}</span>`;
+  if (Math.abs(d) < 0.05) return `<span class="trend flat">• estable</span>`;
+  return d > 0 ? `<span class="trend up">▲ +${d}</span>` : `<span class="trend down">▼ ${d}</span>`;
 }
 function renderRoot(){
-  const byZone = {};
-  const noZone = [];
+  const byZone = {}; const noZone = [];
   stateData.forEach(d => {
-    if (d.zone_id && zones[d.zone_id]) { (byZone[d.zone_id] ||= []).push(d); }
+    if (d.zone_id && zones[d.zone_id]) (byZone[d.zone_id] ||= []).push(d);
     else noZone.push(d);
   });
   let html = "";
-  for (const zid in zones){
-    const z = zones[zid], devs = byZone[zid] || [];
-    if (!devs.length && !z.enabled) continue;
-    html += zoneHtml(z, devs);
-  }
+  for (const zid in zones){ const devs = byZone[zid] || []; if (devs.length) html += zoneHtml(zones[zid], devs); }
   if (noZone.length) html += zoneHtml(null, noZone);
   document.getElementById("root").innerHTML = html || "Sin equipos todavía — enciende una placa.";
 }
 function zoneHtml(z, devs){
   const head = z
-    ? `<span class="chip">${z.crop||"cultivo"} · riega si &lt;${z.soil_min_pct}% · para si &gt;${z.soil_max_pct}%</span>
-       <button class="primary" onclick="irrigate(${z.zone_id},10)">💧 Riego 10</button>
+    ? `<span class="chip">🌿 <b>${z.crop||"cultivo"}</b></span>
+       <span class="chip">riega si &lt;<b>${z.soil_min_pct}%</b> · para si &gt;<b>${z.soil_max_pct}%</b></span>
+       <button class="primary" onclick="irrigate(${z.zone_id},10)">💧 Riego</button>
        <button class="stop" onclick="irrigate(${z.zone_id},0)">⏹ Stop</button>`
     : `<span class="chip">sin zona asignada</span>`;
-  return `<div class="zone"><div class="zonehead"><h3>${z ? z.name : " Equipos sin zona"}</h3>${head}</div>
-    <div class="cards">${devs.map(devHtml).join("")}</div></div>`;
+  return `<div class="zone"><div class="zonehead"><h3>${z ? z.name : "Equipos sin zona"}</h3>${head}</div>
+    ${devs.map(devHtml).join("")}</div>`;
 }
 function devHtml(d){
-  const stc = {online:"online", stale:"stale", offline:"offline", disabled:"disabled"}[d.status];
-  return `<div class="zone" style="background:#0f172a;border:1px solid #334155">
-    <div class="zonehead"><b>${d.name || d.device_id}</b>
+  return `<div style="margin-top:.8rem">
+    <div class="zonehead" style="margin-bottom:.3rem">
+      <b>${d.name || d.device_id}</b>
       <span class="badge ${d.status}">● ${d.status}</span>
       <small>${d.device_id} · ${ago(d.last_seen)}</small>
-      <button onclick="rmDev('${d.device_id}')">Quitar</button></div>
-    <div class="cards">${d.sensors.map(s => sensorHtml(d, s)).join("")}</div>
+      <button onclick="rmDev('${d.device_id}')" style="margin-left:auto">Quitar</button>
+    </div>
+    <div class="grid">${d.sensors.map(s => sensorHtml(d, s)).join("")}</div>
   </div>`;
 }
 function sensorHtml(d, s){
   const zone = zones[d.zone_id];
-  const soil = soilState(s, zone);
-  const cls = soil ? ` ${soil.cls}` : "";
-  return `<div class="card${cls}" onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')"
-           data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-type="${s.type||s.sensor_id}">
-    <div class="lbl">${ICON[s.type]||"·"} ${NAME[s.type]||s.type||s.sensor_id}${soil ? ` · <b>${soil.tag}</b>` : ""}</div>
+  const st = sensorState(s, zone);
+  const color = st.cls ? COL[st.cls] : COL.def;
+  return `<div class="card ${st.cls||""}" style="--accent:${color}"
+           onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')"
+           data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-color="${color}">
+    <div class="cardtop"><span class="icon">${ICON[s.type]||"·"}</span>
+      <span class="lbl">${NAME[s.type]||s.type||s.sensor_id}${st.tag ? `<b>${st.tag}</b>` : ""}</span></div>
     <div class="val">${s.last_value ?? "--"}<small>${s.unit||""}</small></div>
-    <div class="meta">${trend(s)} · ${ago(s.last_seen)}</div>
+    <div class="meta">${trend(s)}<span class="tchip">${ago(s.last_seen)}</span></div>
+    ${gaugeHtml(s, zone)}
     <div class="spark"><canvas id="sp-${d.device_id}-${s.sensor_id}"></canvas></div>
-    <div class="meta"><button onclick="event.stopPropagation();rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>
+    <div class="cardfoot"><span></span>
+      <button onclick="event.stopPropagation();rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>
   </div>`;
 }
-// ---- sparklines 24h (baratos: agg horaria, cada 60s) ----
+// ---- sparklines 24h (agg horaria, cada 60s) ----
 async function sparklines(){
-  const cards = document.querySelectorAll(".card[data-dev]");
-  for (const c of cards){
-    const dev = c.dataset.dev, sid = c.dataset.sid;
+  for (const c of document.querySelectorAll(".card[data-dev]")){
+    const dev = c.dataset.dev, sid = c.dataset.sid, color = c.dataset.color || "#38bdf8";
     try{
       const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=24`);
       const cv = document.getElementById(`sp-${dev}-${sid}`);
       if (!cv || !agg.length) continue;
       const old = Chart.getChart(cv); if(old) old.destroy();
       new Chart(cv, {type:"line", data:{labels:agg.map(()=>""), datasets:[{
-        data: agg.map(x=>x.avg), borderColor:"#38bdf8", borderWidth:1.5, pointRadius:0, tension:.4, fill:true,
-        backgroundColor:"#38bdf822"}]},
+        data: agg.map(x=>x.avg), borderColor:color, borderWidth:1.5, pointRadius:0, tension:.4, fill:true,
+        backgroundColor: color+"22"}]},
         options:{responsive:true, animation:false, plugins:{legend:{display:false}},
                  scales:{x:{display:false}, y:{display:false}}}});
     }catch(e){}
@@ -1039,10 +1082,8 @@ async function sparklines(){
 // ---- alertas ----
 function ensureAdm(){ return sessionStorage.ADM || (sessionStorage.ADM = prompt("X-Admin-Key (gobernar riegos/alertas):") || ""); }
 async function loadAlerts(){
-  const k = ensureAdm(); if(!k) return;
   try{
-    const r = await fetch("/api/v2/alerts", {headers:{"X-Api-Key":KEY}});
-    const list = await r.json();
+    const list = await api("/api/v2/alerts");
     const box = document.getElementById("alerts");
     if (!list.length) { box.innerHTML = "<small>Todo en orden — sin alertas abiertas</small>"; return; }
     box.innerHTML = list.map(a =>
@@ -1051,8 +1092,7 @@ async function loadAlerts(){
   }catch(e){ document.getElementById("alerts").innerHTML = "alertas: " + e.message; }
 }
 async function ack(id){
-  const k = ensureAdm();
-  const r = await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":k}});
+  const r = await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":ensureAdm()}});
   r.ok ? toast("Alerta reconocida") : toast("No se pudo ackear", false);
   loadAlerts();
 }
@@ -1064,7 +1104,7 @@ async function irrigate(zid, min){
   const r = await fetch(`/api/v2/zones/${zid}/irrigate`, {method:"POST",
     headers:{"Content-Type":"application/json","X-Admin-Key":k}, body: JSON.stringify(body)});
   if(!r.ok){ toast("Fallo: " + (await r.text()).slice(0,80), false); }
-  else { toast(min > 0 ? `💧 Riego ${body.duration_min} min encolado` : "⏹ Stop encolado"); refresh(); }
+  else { toast(min > 0 ? `💧 Riego ${body.duration_min} min encolado` : "⏹ Stop encolado"); refresh(); feed(); }
 }
 async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); toast("Sensor dado de baja (baja lógica)"); refresh(); } }
 async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); toast("Equipo dado de baja"); refresh(); } }
@@ -1077,13 +1117,12 @@ async function feed(){
       const done = e.duration_min != null;
       return `<div class="ev"><span>${TRIG[e.trigger]||"•"}</span>
         <b>${e.zone}</b> <span class="pill ${e.trigger}">${e.trigger}</span>
-        <span>${done ? `riegó ${e.duration_min.toFixed(0)} min${e.liters ? " · " + e.liters + "L" : ""}` : "riego EN CURSO"}</span>
+        <span>${done ? `riegó ${e.duration_min.toFixed(0)} min${e.liters ? " · " + e.liters + "L" : ""}` : "riego EN CURSO ⏳"}</span>
         <span class="t">${ago(e.started_at)}</span></div>`;
     }).join("") || "<small>Sin actividad aún</small>";
   }catch(e){ document.getElementById("feed").innerHTML = "feed: " + e.message; }
 }
 // ---- charts grandes (modal) ----
-let charts = [];
 function mkChart(id, labels, data, label, color){
   const old = Chart.getChart(id); if(old) old.destroy();
   return new Chart(document.getElementById(id), {type:"line",
@@ -1103,9 +1142,7 @@ async function openChart(dev, sid, type, unit, rango){
     const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=${horas}`);
     const lb = agg.map(x => new Date(x.ts).toLocaleString("es", {day:"2-digit", month:"2-digit", hour:"2-digit"}));
     mkChart("ch1", lb, agg.map(x => x.avg), "promedio horario", "#38bdf8");
-    if (agg.length && agg[0].min !== undefined) {
-      mkChart("ch2", lb, agg.map(x => x.min), "mínimo", "#f87171");
-    } else { Chart.getChart("ch2")?.destroy(); }
+    if (agg.length && agg[0].min !== undefined) mkChart("ch2", lb, agg.map(x => x.min), "mínimo", "#f87171");
   } catch(e) { toast("sin datos agregados", false); }
   try {
     const raw = await api(`/api/v2/history?device_id=${dev}&sensor_id=${sid}&limit=200`);
