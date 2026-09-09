@@ -49,3 +49,9 @@ Infra AWS usada: EC2 `s2` (t2.micro, us-west-2), RDS `iot-poc` (postgres free-ti
 ## Estándares
 
 12-factor (config por entorno), contenedor con healthcheck + gunicorn, DDL versionado en `init_db()`, backup best-effort que nunca tumba el ingest, logs estructurados.
+
+## Seguridad
+
+Política completa en [`docs/SECURITY.md`](docs/SECURITY.md): HMAC-SHA256 + anti-replay,
+Secretos fuera del repo (Secrets Manager + `.env` solo en el servidor), doble escritura
+RDS + S3 con SSE, detector EN LÍNEA/CAÍDO y plan de endurecimiento pre-producción (TLS, RDS cifrado, IAM Role).
