@@ -895,6 +895,13 @@ DASHBOARD_HTML = """<!doctype html>
     .custom-scroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.6); border-radius: 4px; }
     .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.8); }
+    /* --- guardas anti-overflow (proyecto completo) --- */
+    html, body { overflow-x: hidden; max-width: 100vw; }
+    .stat, .zone, .card, .ev, .alert, #chartbox { min-width: 0; max-width: 100%; }
+    .card *, .ev *, .alert * { min-width: 0; }
+    .card .val, #charttitle, .ev b, .alert b { word-break: break-word; }
+    .gauge { max-width: 100%; }
+    canvas { display: block; max-width: 100%; }
   </style>
 </head>
 <body class="min-h-full flex flex-col font-sans selection:bg-emerald-500/20 selection:text-emerald-300">
@@ -926,7 +933,7 @@ DASHBOARD_HTML = """<!doctype html>
         </div>
       </div>
 
-      <div class="flex items-center flex-wrap gap-4 text-xs">
+      <div class="flex items-center flex-wrap gap-3 text-xs min-w-0">
         <div class="hidden md:flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-400 font-medium">
           <span class="text-slate-500 text-[11px] uppercase tracking-wider">Estado de suelo:</span>
           <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span> Seco</span>
@@ -953,7 +960,7 @@ DASHBOARD_HTML = """<!doctype html>
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
     <!-- KPI Metric Cards Grid -->
-    <section id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-3.5 sm:gap-5">
+    <section id="stats" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5 sm:gap-5">
       <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-4 animate-pulse">
         <div class="w-11 h-11 rounded-xl bg-slate-800"></div>
         <div class="space-y-2 flex-1"><div class="h-3 bg-slate-800 rounded w-1/2"></div><div class="h-6 bg-slate-800 rounded w-3/4"></div></div>
@@ -1073,20 +1080,20 @@ DASHBOARD_HTML = """<!doctype html>
           <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
             <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Promedio Horario
           </span>
-          <div class="h-56 relative w-full"><canvas id="ch1" class="chartbig"></canvas></div>
+          <div class="h-56 relative w-full"><canvas id="ch1" class="chartbig w-full"></canvas></div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
             <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Registro Mínimo
             </span>
-            <div class="h-44 relative w-full"><canvas id="ch2" class="chartbig"></canvas></div>
+            <div class="h-44 relative w-full"><canvas id="ch2" class="chartbig w-full"></canvas></div>
           </div>
           <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
             <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Muestras Crudas Recientes
             </span>
-            <div class="h-44 relative w-full"><canvas id="ch3" class="chartbig"></canvas></div>
+            <div class="h-44 relative w-full"><canvas id="ch3" class="chartbig w-full"></canvas></div>
           </div>
         </div>
       </div>
@@ -1334,8 +1341,8 @@ DASHBOARD_HTML = """<!doctype html>
 
       return `
         <div class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-5 shadow-lg shadow-black/20 space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-800/80">
-            <div><h3 class="text-base font-semibold text-white tracking-tight">${z ? z.name : "Equipos en campo"}</h3>
+          <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-800/80 min-w-0">
+            <div class="min-w-0"><h3 class="text-base font-semibold text-white tracking-tight break-words">${z ? z.name : "Equipos en campo"}</h3>
             <div class="mt-1.5">${badges}</div></div>
             ${headActions}
           </div>
@@ -1349,10 +1356,10 @@ DASHBOARD_HTML = """<!doctype html>
       const isOnline = d.status === "online";
       return `
         <div class="bg-slate-950/40 border border-slate-800/60 rounded-xl p-4">
-          <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <div class="flex items-center gap-2.5">
+          <div class="flex items-center justify-between gap-3 mb-3 flex-wrap min-w-0">
+            <div class="flex items-center gap-2.5 min-w-0">
               <span class="w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-rose-500'}"></span>
-              <span class="text-sm font-semibold text-slate-200">${d.name || d.device_id}</span>
+              <span class="text-sm font-semibold text-slate-200 break-words">${d.name || d.device_id}</span>
               <span class="text-[11px] font-mono text-slate-400 px-2 py-0.5 rounded bg-slate-900 border border-slate-800">${d.device_id}</span>
             </div>
             <div class="flex items-center gap-3">
@@ -1373,7 +1380,7 @@ DASHBOARD_HTML = """<!doctype html>
       const meta = SENSOR_META[s.type] || { icon: "activity", name: s.type || s.sensor_id, unitDefault: "" };
       const displayUnit = s.unit || meta.unitDefault;
       return `
-        <div class="relative group bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-sm"
+        <div class="relative group bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-sm overflow-hidden"
              style="--card-accent: ${colorObj.hex}"
              onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type || s.sensor_id}','${displayUnit}')"
              data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-color="${colorObj.hex}">
@@ -1386,8 +1393,8 @@ DASHBOARD_HTML = """<!doctype html>
             </div>
             ${st.tag ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colorObj.badge} tracking-wider">${st.tag}</span>` : ''}
           </div>
-          <div class="mt-2.5 flex items-baseline justify-between gap-2">
-            <div class="text-2xl font-bold font-mono text-white tracking-tight">${s.last_value ?? "--"}<span class="text-xs font-sans text-slate-400 font-normal">${displayUnit}</span></div>
+          <div class="mt-2.5 flex items-baseline justify-between gap-2 flex-wrap">
+            <div class="text-2xl font-bold font-mono text-white tracking-tight min-w-0 break-words text-left">${s.last_value ?? "--"}<span class="text-xs font-sans text-slate-400 font-normal">${displayUnit}</span></div>
             ${trend(s)}
           </div>
           ${gaugeHtml(s, zone)}
@@ -1439,11 +1446,11 @@ DASHBOARD_HTML = """<!doctype html>
             const borderClr = isCrit ? "border-rose-500/40 bg-rose-500/10 text-rose-300" : "border-amber-500/40 bg-amber-500/10 text-amber-300";
             const iconName = isCrit ? "alert-octagon" : "alert-triangle";
             return `
-              <div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${borderClr} text-xs">
-                <div class="flex items-center gap-2.5">
+              <div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${borderClr} text-xs flex-wrap">
+                <div class="flex items-center gap-2.5 min-w-0 flex-1">
                   <i data-lucide="${iconName}" class="w-4 h-4 shrink-0"></i>
-                  <div><span class="font-bold tracking-wide uppercase text-[11px]">${a.kind}</span>
-                  <p class="text-slate-300 mt-0.5">${a.message}</p></div>
+                  <div class="min-w-0"><span class="font-bold tracking-wide uppercase text-[11px] break-words">${a.kind}</span>
+                  <p class="text-slate-300 mt-0.5 break-words">${a.message}</p></div>
                 </div>
                 ${sessionStorage.ADM ? `<button onclick="ack(${a.alert_id})" class="px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition active:scale-95 shrink-0">Confirmar (Ack)</button>` : ""}
               </div>`;
@@ -1501,12 +1508,12 @@ DASHBOARD_HTML = """<!doctype html>
           const done = e.duration_min != null;
           const icon = TRIGGER_ICONS[e.trigger] || "activity";
           return `
-            <div class="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs gap-3 hover:border-slate-700 transition">
-              <div class="flex items-center gap-2.5">
+            <div class="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs gap-3 hover:border-slate-700 transition min-w-0">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
                 <div class="w-6 h-6 rounded-lg bg-slate-900 text-slate-400 border border-slate-800 flex items-center justify-center shrink-0"><i data-lucide="${icon}" class="w-3.5 h-3.5"></i></div>
                 <div>
-                  <div class="font-medium text-slate-200">${e.zone} · <span class="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${e.trigger}</span></div>
-                  <div class="text-[11px] text-slate-400 mt-0.5">${done ? `Riego completado: ${e.duration_min.toFixed(0)} min (${e.liters ? e.liters + " L" : ""})` : `<span class="text-emerald-400 font-medium animate-pulse">Riego en curso ⏳</span>`}</div>
+                  <div class="font-medium text-slate-200 break-words">${e.zone} · <span class="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${e.trigger}</span></div>
+                  <div class="text-[11px] text-slate-400 mt-0.5 break-words">${done ? `Riego completado: ${e.duration_min.toFixed(0)} min (${e.liters ? e.liters + " L" : ""})` : `<span class="text-emerald-400 font-medium animate-pulse">Riego en curso ⏳</span>`}</div>
                 </div>
               </div>
               <span class="text-[10px] font-mono text-slate-400 shrink-0">${ago(e.started_at)}</span>
