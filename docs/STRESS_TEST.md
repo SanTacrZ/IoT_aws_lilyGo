@@ -43,7 +43,25 @@ python3 tools/stress_test.py http://localhost:8001 dash 300 30
 | Historial lento (TB) | Timescale chunks ya; continuos aggregates para dashboard |
 | Multi-region | Replicas + Route53 latencia (lejos: no necesario <10k devices) |
 
+## Segunda pasada: 1,000,000 de filas + continuous aggregates (Timescale)
+
+Dataset: 1M lecturas (100 devices x soil1, ~2 anos de minutos).
+
+| Query | Antes (crudo) | Con `readings_hourly` (continuous agg) | Mejora |
+|---|---|---|---|
+| Tendencia 7 dias por sensor | 11.8 ms | **0.155 ms** | 76x |
+| Tendencia 1 anio horaria | 613.7 ms (chunks comprimidos) | **67.8 ms** | 9x |
+| Tendencia 1 anio diaria (re-agg) | — | **4.7 ms** | 130x |
+| `/history` ultimos 100 pts de 1M | 2.9 ms (indice) | — | ok |
+| **HTTP** `/api/v2/history-agg` x500 conc30 | — | **2,315 rps · p99 35 ms** | — |
+
+Por que es rapido: chunk pruning (7 dias = solo chunk fresco), compresion columnar
+(~90% en chunks >7 dias) y el continuous aggregate pre-materializado con refresh
+automatico por hora (`add_continuous_aggregate_policy`).
+Endpoint nuevo: `GET /api/v2/history-agg?device_id&sensor_id&bucket=1h|1d&hours<=8760`.
+Dashboard: boton 📈 por sensor -> graficas (Chart.js) de promedio/minimo horario con
+rangos 24h/7d/1a + ultimos 200 puntos crudos.
+
 ## Pendientes de medir (proxima pasada)
-- [ ] `GET /history` con 1M+ filas por sensor (con continuous aggregates)
 - [ ] rule-engine: latencia de ciclo con 1,000 zonas
 - [ ] rebote de conexiones (keep-alive HTTP) vs connection-per-request actual

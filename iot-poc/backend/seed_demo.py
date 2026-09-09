@@ -64,7 +64,18 @@ def main():
             cur.execute("ALTER TABLE measurements_v2 SET (timescaledb.compress)")
             cur.execute("SELECT add_compression_policy('measurements_v2', INTERVAL '7 days', if_not_exists => TRUE)")
             cur.execute("SELECT add_retention_policy('measurements_v2', INTERVAL '180 days', if_not_exists => TRUE)")
-            print("timescale: hipertable + politicas ok")
+            cur.execute("""CREATE MATERIALIZED VIEW IF NOT EXISTS readings_hourly
+                           WITH (timescaledb.continuous) AS
+                           SELECT device_id, sensor_id, time_bucket('1 hour', ts) AS bucket,
+                                  avg(value) AS avg_v, min(value) AS min_v,
+                                  max(value) AS max_v, count(*) AS n
+                           FROM measurements_v2 GROUP BY device_id, sensor_id, bucket
+                           WITH NO DATA""")
+            cur.execute("""SELECT add_continuous_aggregate_policy('readings_hourly',
+                           start_offset => INTERVAL '3 hours', end_offset => INTERVAL '1 hour',
+                           schedule_interval => INTERVAL '1 hour', if_not_exists => TRUE)""")
+            cur.execute("CALL refresh_continuous_aggregate('readings_hourly', NULL, NULL)")
+            print("timescale: hipertable + compresion + continuous aggregate ok")
         except Exception as e:
             print("timescale politicas omitidas:", e)
 

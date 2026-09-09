@@ -36,12 +36,10 @@ alerts (zone_id, device_id)
 SELECT DISTINCT ON (device_id, sensor_id) device_id, sensor_id, value, ts
 FROM measurements_v2 ORDER BY device_id, sensor_id, ts DESC;
 
--- Serie horaria para gráfica (time_bucket de Timescale)
-SELECT sensor_id, time_bucket('1 hour', ts) AS h,
-       avg(value) AS avg_v, min(value) AS min_v, max(value) AS max_v
-FROM measurements_v2
-WHERE device_id = $1 AND ts > now() - interval '7 days'
-GROUP BY sensor_id, h ORDER BY h;
+-- Serie horaria para gráfica — continuous aggregate (≈0.1ms con 1M+ filas)
+SELECT bucket, avg_v, min_v, max_v FROM readings_hourly
+WHERE device_id = $1 AND sensor_id = $2 AND bucket > now() - interval '7 days'
+ORDER BY bucket;
 
 -- Humedad media por zona (join registro)
 SELECT z.name, avg(m.value) AS soil_avg

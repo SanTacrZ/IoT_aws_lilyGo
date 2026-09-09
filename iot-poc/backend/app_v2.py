@@ -725,6 +725,37 @@ def sensor_health(dev, sid):
                        last_seen=r[1].isoformat() if r[1] else None,
                        enabled=r[2], status=status_of(r[1]))
 
+@app.get("/api/v2/history-agg")
+def history_agg():
+    """Tendencia desde el continuous aggregate horario de TimescaleDB.
+    bucket: 1h|1d  ·  hours: ventana hacia atras (max 8760 = 1 anio)."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    dev, sid = request.args.get("device_id", ""), request.args.get("sensor_id", "")
+    if not dev or not sid:
+        return jsonify(error="device_id y sensor_id requeridos"), 422
+    bucket = {"1h": "1 hour", "1d": "1 day"}.get(request.args.get("bucket", "1h"), "1 hour")
+    try:
+        hours = min(max(int(request.args.get("hours", 168)), 1), 8760)
+    except ValueError:
+        return jsonify(error="hours invalido"), 422
+    try:
+        with db().cursor() as cur:
+            if bucket == "1 day":  # re-agregar el agg horario a diario
+                cur.execute(f"""SELECT time_bucket('1 day', bucket) AS d, avg(avg_v), min(min_v),
+                                max(max_v), sum(n) FROM readings_hourly
+                                WHERE device_id=%s AND sensor_id=%s
+                                AND bucket > now() - interval '{hours} hours'
+                                GROUP BY d ORDER BY d""", (dev, sid))
+            else:
+                cur.execute(f"""SELECT bucket, avg_v, min_v, max_v, n FROM readings_hourly
+                                WHERE device_id=%s AND sensor_id=%s AND bucket > now() - interval '{hours} hours'
+                                ORDER BY bucket""", (dev, sid))
+            return jsonify([{"ts": r[0].isoformat(), "avg": r[1], "min": r[2], "max": r[3], "n": r[4]}
+                            for r in cur.fetchall()])
+    except psycopg2.errors.UndefinedTable:
+        return jsonify(error="readings_hourly no existe (correr seed)"), 503
+
 @app.get("/dashboard-v2")
 def dashboard_v2():
     return """<!doctype html><html lang="es"><head><meta charset="utf-8">
@@ -735,7 +766,11 @@ def dashboard_v2():
 .card span{font-size:.75rem;color:#94a3b8}.card b{font-size:1.4rem;display:block}
 .online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}.disabled{color:#94a3b8}
 button{background:#475569;color:#fff;border:0;border-radius:.4rem;padding:.3rem .6rem;cursor:pointer;font-size:.75rem}
-small{color:#94a3b8}</style></head><body>
+small{color:#94a3b8}
+#overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
+#chartbox{background:#1e293b;border-radius:.75rem;padding:1rem;width:min(720px,95vw)}
+canvas{max-height:260px}</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head><body>
 <h1>🌱 IoT Autónomo v2 <small>(poll 5s · API-Key en prompt)</small></h1>
 <p><small>Quitar sensor/equipo = baja lógica. Si vuelve a enviar datos, se re-habilita solo.</small></p>
 <div id="root">Cargando…</div>
@@ -756,14 +791,51 @@ async function refresh() {
       <div class="cards">${d.sensors.map(s => `
         <div class="card"><span>${s.type||s.sensor_id} (${s.unit||""})<br>${s.sensor_id}</span>
         <b>${s.last_value ?? "--"}</b><br>
+        <button onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')">📈</button>
         <button onclick="rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>`).join("") || "<small>Sin sensores habilitados</small>"}</div></div>`).join("")
       : "Sin equipos todavía — enciende una placa.";
   } catch(e) { document.getElementById("root").innerHTML = "Error: " + e.message; }
 }
 async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); refresh(); } }
 async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); refresh(); } }
-refresh(); setInterval(refresh, 5000);
-</script></body></html>"""
+let charts = [];
+function mkChart(id, labels, data, label, color){
+  const old = Chart.getChart(id); if(old) old.destroy();
+  return new Chart(document.getElementById(id), {type:"line",
+    data:{labels, datasets:[{label, data, borderColor:color, backgroundColor:color+"33",
+      pointRadius:0, tension:.3, fill:true}]},
+    options:{plugins:{legend:{display:true, labels:{color:"#e2e8f0", font:{size:10}}}},
+      scales:{x:{ticks:{color:"#94a3b8", maxTicksLimit:8}}, y:{ticks:{color:"#94a3b8"}}}}});
+}
+async function openChart(dev, sid, type, unit, rango){
+  const ov = document.getElementById("overlay");
+  ov.style.display = "flex";
+  document.getElementById("charttitle").textContent = `${type} · ${dev}/${sid} (${unit||""})`;
+  document.getElementById("rangos").innerHTML = ["24h","7d","1a"].map(r =>
+    `<button onclick="openChart('${dev}','${sid}','${type}','${unit}','${r}')">${r}</button>`).join(" ");
+  const horas = {"24h":24, "7d":168, "1a":8760}[rango || "7d"] || 168;
+  try {
+    const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=${horas}`);
+    const lb = agg.map(x => new Date(x.ts).toLocaleString("es", {day:"2-digit", month:"2-digit", hour:"2-digit"}));
+    mkChart("ch1", lb, agg.map(x => x.avg), "promedio horario", "#38bdf8");
+    if (agg.length && agg[0].min !== undefined) {
+      mkChart("ch2", lb, agg.map(x => x.min), "mínimo", "#f87171");
+    } else { Chart.getChart("ch2")?.destroy(); }
+  } catch(e) { alert("sin datos agregados: " + e.message); }
+  try {
+    const raw = await api(`/api/v2/history?device_id=${dev}&sensor_id=${sid}&limit=200`);
+    const lb2 = raw.map(x => new Date(x.ts).toLocaleTimeString("es", {hour:"2-digit", minute:"2-digit"})).reverse();
+    mkChart("ch3", lb2, raw.map(x => x.value).reverse(), "últimos puntos crudos", "#4ade80");
+  } catch(e) {}
+}
+</script>
+<div id="overlay" onclick="if(event.target===this)this.style.display='none'">
+  <div id="chartbox"><h3 id="charttitle"></h3> <small><span id="rangos"></span>
+    <button onclick="document.getElementById('overlay').style.display='none'">Cerrar</button></small>
+    <canvas id="ch1"></canvas><canvas id="ch2"></canvas><canvas id="ch3"></canvas>
+  </div>
+</div>
+</body></html>"""
 
 if __name__ == "__main__":
     init_db()
