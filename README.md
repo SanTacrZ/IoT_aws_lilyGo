@@ -65,3 +65,6 @@ Infra AWS usada: EC2 `s2` (t2.micro, us-west-2), RDS `iot-poc` (postgres free-ti
 Política completa en [`docs/SECURITY.md`](docs/SECURITY.md): HMAC-SHA256 + anti-replay,
 Secretos fuera del repo (Secrets Manager + `.env` solo en el servidor), doble escritura
 RDS + S3 con SSE, detector EN LÍNEA/CAÍDO y plan de endurecimiento pre-producción (TLS, RDS cifrado, IAM Role).
+
+Roadmap al despliegue en finca en [`docs/ROADMAP.md`](docs/ROADMAP.md): sensores reales,
+cero pérdidas (cola + idempotencia), tríada CIA y escala con LoRaWAN/IoT Core.

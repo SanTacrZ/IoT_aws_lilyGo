@@ -57,7 +57,32 @@
 6. **Trazabilidad**: agregar `id` de correlación placa→RDS→S3 y alertas (p. ej. SNS) cuando el
    dashboard marque `CAÍDO` más de N minutos.
 
-## 5. Respuesta ante incidente
+## 6. Tríada CIA y escala a finca (texto plano → dato blindado)
+
+**Estado actual honesto:** la placa envía por **HTTP en texto plano**. Hoy la integridad
+está cubierta por HMAC (nadie puede alterar sin la clave) y la autenticidad por API-Key,
+pero la **confidencialidad no existe**: quien intercepte la red lee JSON y claves.
+Para una finca extensa esto no es aceptable. Plan por pilar:
+
+### Confidencialidad (que nadie lea)
+- TLS 1.2+ extremo a extremo: placa (`WiFiClientSecure` + CA real) → Nginx/ALB con
+  Let's Encrypt → backend. Cerrar `8000/tcp` al mundo.
+- Clave **única por `device_id`** (hoy es global): comprometer un equipo no expone la finca.
+- S3 ya cifra en reposo (SSE AES256); activar cifrado RDS con KMS (§4.2).
+
+### Integridad (que nadie altere ni duplique)
+- HMAC-SHA256 ya activo; endurecer con **nonce/contador monotónico** persistido en NVS
+  para cerrar el replay dentro de la ventana de 300 s.
+- `reading_id` único + constraint `UNIQUE` en RDS: los reintentos legítimos nunca duplican.
+- Doble escritura verificable: conciliación periódica RDS ↔ JSONL de S3 (conteos por día/`device_id`).
+
+### Disponibilidad (que siempre llegue y se lea)
+- Cola con persistencia en placa + endpoint batch (ver `docs/ROADMAP.md` Fase 2).
+- RDS Multi-AZ + backups ≥7 días + `DeletionProtection`; alarma `CAÍDO > 10 min` vía SNS.
+- Gateways LoRaWAN con backhaul 4G para zonas sin WiFi; AWS IoT Core (MQTT/TLS/X.509)
+  como plano de ingesta a escala en vez de HTTP directo por equipo.
+
+## 7. Respuesta ante incidente
 
 * Clave sospechada → rotar (§3), revisar `readings` por `device_id` en la ventana,
   comparar contra el JSONL de S3 (fuente fría inmutable por día).
