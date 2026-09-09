@@ -1,70 +1,75 @@
-# IoT AWS LilyGo 🌱☀️
+# AgroSense 🌱 — Plataforma IoT de Agricultura de Precisión
 
-POC profesional de IoT: **LilyGo (ESP32) + Soil Moisture + Humedad/Temperatura (HyT) + Radiación Solar** → backend **Flask contenerizado** en EC2 → **PostgreSQL en RDS** → **boto3** (Secrets Manager + backup S3).
+> Del POC de clase a sistema de producción: monitoreo y riego autónomos para comunidades agrícolas.
+> **Rama de desarrollo completo: `ejercicio-3`.** AWS + PostgreSQL + ESP32/LilyGo.
 
-## Arquitectura
+## Qué es
+
+Sistema autónomo que monitorea cultivos en tiempo real y riega por sí solo:
 
 ```
-LilyGo ESP32 ──POST JSON firmado (HMAC)──▶ EC2 s2 :8000 (Docker: api)
-         │                                          │  ├─ boto3 (CONTROL): Secrets Manager → credenciales RDS
-         │                                          │  │                    S3 → backup frío raw/*.jsonl
-                                                 psycopg2 (DATOS): INSERT → RDS Postgres (tabla readings)
+CAPA CAMPO            CAPA CONECTIVIDAD          CAPA NUBE AWS                CAPA APP
+LilyGo T-Beam    ──►  HTTPS+HMAC (v2)      ──►  ALB → ECS Fargate      ──►  Dashboard v5
+ + suelo cap.,        MQTT QoS1 (v5)            └→ RDS PostgreSQL 16.15      (Tailwind+Lucide,
+ DHT22, solar,        LoRaWAN (TTN,             (privado) + MV horaria       zonas, gauges,
+ batería              parcelas sin WiFi)        + pg_cron                    feed, toasts)
+ Actuadores: relé,     ← comandos (polling)      Secrets Manager · SNS        Motor de reglas
+ caudalímetro,                                   CloudWatch                   (histéresis+cooldown)
+ watchdog local
 ```
 
-**Aclaración importante: boto3 nunca habla con el RDS.** Hay dos planos separados:
+**Autonomía total:** los equipos se registran solos al primer POST (UPSERT), los sensores
+nuevos aparecen sin migraciones, las bajas son lógicas y reversibles, y si la placa pierde
+internet riega con reglas locales (NVS) y reporta al reconectar.
 
-* **Plano de control (boto3):** al arrancar, el backend pide `{username, password, host,
-  port, dbname}` a **Secrets Manager** (`DB_SECRET_ARN`, con caché en memoria) y usa
-  `PutObject/GetObject` contra **S3** para el respaldo frío con `SSE AES256`.
-  Así la clave del RDS **nunca vive en disco ni en git** (ver `docs/SECURITY.md`).
-* **Plano de datos (psycopg2):** con esas credenciales abre TCP a `:5432` y ejecuta el
-  `INSERT INTO readings`. Si mañana el Postgres cambia de proveedor, boto3 ni se entera.
+## Estado del proyecto
 
-El backup S3 es best-effort: si falla, el `INSERT` ya quedó y el request igual devuelve `201`.
+| Fase | Alcance | Estado |
+|---|---|---|
+| 1 | POC clase: Flask + HMAC + RDS + dashboard v1 | ✅ `main` |
+| 2 | Arquitectura autónoma v2 (registro automático, multi-equipo) | ✅ `ejercicio-3` |
+| 3 | Precisión agrícola: zonas, cultivos, reglas, motor de riego, alertas, CRUD | ✅ `ejercicio-3` |
+| 4 | AWS IaC (Terraform: VPC+RDS+Fargate+ALB+Secrets+SNS) | ✅ validado en lab, destruido p/ahorrar créditos |
+| 5 | MQTT (Mosquitto local + ingestor, mismos topics de IoT Core) | ✅ `ejercicio-3` |
+| 5b | LoRaWAN (diseño TTN + firmware OTAA T-Beam) | 📦 diseñado (`docs/LORAWAN.md`) |
+| 6 | ETc evapotranspiración + TinyML anomalías | ⏳ próximo |
 
-**Seguridad (no se envía plano):** `X-Api-Key` + `X-Timestamp` + `X-Signature = HMAC-SHA256(timestamp.body)` con ventana anti-replay (5 min). En producción siempre HTTPS/TLS delante.
+## Inicio rápido (local, 2 min)
+
+```bash
+cd iot-poc/deploy
+docker compose -f docker-compose.dev.yml up -d            # db+apis+rule-engine+mosquitto
+docker compose -f docker-compose.dev.yml --profile demo up -d   # placas simuladas
+```
+- Dashboard: **http://localhost:8001/dashboard-v2** (API-Key: `demo-key-cambiar`)
+- Admin-Key: `demo-admin-cambiar` (riego manual, alertas)
+- Tests: `docker compose -f docker-compose.dev.yml exec api-v2 pytest -q` (8 e2e)
+- Reset: `docker compose -f docker-compose.dev.yml down -v`
+
+## Producción (AWS Academy / cuenta propia)
+
+IaC completa en `deploy/terraform/` — ver **`docs/DEPLOYMENT_REPORT.md`** para el runbook
+de redespliegue (10 min), costos reales medidos y las limitaciones del lab resueltas.
 
 ## Estructura
 
 ```
-iot-poc/
-├── backend/          # API Flask + psycopg2 + boto3 (Dockerfile, app.py, requirements.txt)
-├── deploy/           # docker-compose.yml + .env.example (despliegue EC2)
-├── firmware/         # lilygo_secure_post.ino (ESP32) + sim_device.py (simulador)
-app.py                # servidor Flask legacy clase (puerto 80, /dashboard)
-stress.py             # prueba de estrés GET/POST stdlib
-user-data.sh          # bootstrap EC2 original
+iot-poc/backend/       Flask v1 (clase) + app_v2.py (autónomo) + mqtt_ingest.py + motor de reglas
+automation/            rule_engine.py (riego de precisión) + loop.py
+iot-poc/firmware/      LilyGo: genérico, riego (relé+caudalímetro+offline), MQTT, LoRaWAN
+iot-poc/deploy/        docker-compose.dev.yml (todo el stack local) + terraform/ (AWS)
+db/migrations/         002_precision.sql (zonas/reglas/actuadores/usuarios)
+tools/                 stress_test.py + seed_burn.sql (demo local)
+docs/                  CRUD_DESIGN, AUTOMATION, DATA_MODEL, SECURITY, STRESS_TEST,
+                       LORAWAN, DEV_DOCKER, DEPLOYMENT_REPORT
 ```
 
-## Contrato de datos
+## Seguridad (resumen)
+- Dispositivos: HMAC-SHA256 + timestamp anti-replay + rate-limit por device
+- Humanos: API-Key (solo lectura) / Admin-Key (escritura) — jamás en URLs ni commits
+- Producción: RDS privado, secretos en Secrets Manager, claves aleatorias de 40-64 chars
 
-`POST /api/v1/readings` (firmado):
-```json
-{"device_id":"lilygo-01","temperature_c":25.4,"humidity_pct":58.1,
- "soil_moisture_pct":42.0,"solar_w_m2":480.5,"battery_v":4.02}
-```
-
-## Despliegue rápido (EC2 s2)
-
-```bash
-cd iot-poc/deploy
-cp .env.example .env   # rellenar DEVICE_API_KEY, HMAC_SECRET, DB_SECRET_ARN, S3_BACKUP_BUCKET
-docker-compose up -d --build
-curl http://localhost:8000/health
-DEVICE_API_KEY=... HMAC_SECRET=... python3 ../firmware/sim_device.py http://TU-IP:8000/api/v1/readings
-```
-
-Infra AWS usada: EC2 `s2` (t2.micro, us-west-2), RDS `iot-poc` (postgres free-tier), S3 `iot-poc-265096288210-usw2`, Secrets Manager.
-
-## Estándares
-
-12-factor (config por entorno), contenedor con healthcheck + gunicorn, DDL versionado en `init_db()`, backup best-effort que nunca tumba el ingest, logs estructurados.
-
-## Seguridad
-
-Política completa en [`docs/SECURITY.md`](docs/SECURITY.md): HMAC-SHA256 + anti-replay,
-Secretos fuera del repo (Secrets Manager + `.env` solo en el servidor), doble escritura
-RDS + S3 con SSE, detector EN LÍNEA/CAÍDO y plan de endurecimiento pre-producción (TLS, RDS cifrado, IAM Role).
-
-Roadmap al despliegue en finca en [`docs/ROADMAP.md`](docs/ROADMAP.md): sensores reales,
-cero pérdidas (cola + idempotencia), tríada CIA y escala con LoRaWAN/IoT Core.
+## Equipo y contexto
+Proyecto universitario (UPB) — de POC de clase a plataforma comunitaria de agricultura
+de precisión. Metodología: desarrollo por ejercicios incrementales en ramas, tests e2e,
+benchmark con 1M de filas y despliegue real en AWS.

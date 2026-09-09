@@ -13,3 +13,7 @@ __pycache__/
 # OS / editores
 .DS_Store
 .vscode/
+
+# artefactos terraform
+.terraform/
+*.zip

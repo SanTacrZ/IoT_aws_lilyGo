@@ -7,7 +7,7 @@ resource "aws_sns_topic" "alerts" {
 
 variable "alert_phone_numbers" {
   type        = list(string)
-  default     = []      # ["+52XXXXXXXXXX", ...] numeros de los comuneros
+  default     = []
   description = "Suscripciones SMS al topic de alertas"
 }
 
@@ -18,16 +18,6 @@ resource "aws_sns_topic_subscription" "sms" {
   endpoint  = var.alert_phone_numbers[count.index]
 }
 
-# Email (opcional, requiere confirmar en el correo)
-variable "alert_emails" {
-  type    = list(string)
-  default = []
+output "sns_topic_arn" {
+  value = aws_sns_topic.alerts.arn
 }
-resource "aws_sns_topic_subscription" "email" {
-  count     = length(var.alert_emails)
-  topic_arn = aws_sns_topic.alerts.arn
-  protocol  = "email"
-  endpoint  = var.alert_emails[count.index]
-}
-
-output "sns_topic_arn" { value = aws_sns_topic.alerts.arn }
