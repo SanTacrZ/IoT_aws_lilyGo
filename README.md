@@ -5,12 +5,22 @@ POC profesional de IoT: **LilyGo (ESP32) + Soil Moisture + Humedad/Temperatura (
 ## Arquitectura
 
 ```
-LilyGo ESP32 ──HTTPS POST JSON firmado (HMAC)──▶ EC2 s2 :8000 (Docker: api)
-                                                      │  boto3
-                                                      ├─ Secrets Manager (credenciales RDS)
-                                                      ├─ S3 backup frío (raw/*.jsonl)
-                                                      └─ RDS Postgres (tabla readings)
+LilyGo ESP32 ──POST JSON firmado (HMAC)──▶ EC2 s2 :8000 (Docker: api)
+         │                                          │  ├─ boto3 (CONTROL): Secrets Manager → credenciales RDS
+         │                                          │  │                    S3 → backup frío raw/*.jsonl
+                                                 psycopg2 (DATOS): INSERT → RDS Postgres (tabla readings)
 ```
+
+**Aclaración importante: boto3 nunca habla con el RDS.** Hay dos planos separados:
+
+* **Plano de control (boto3):** al arrancar, el backend pide `{username, password, host,
+  port, dbname}` a **Secrets Manager** (`DB_SECRET_ARN`, con caché en memoria) y usa
+  `PutObject/GetObject` contra **S3** para el respaldo frío con `SSE AES256`.
+  Así la clave del RDS **nunca vive en disco ni en git** (ver `docs/SECURITY.md`).
+* **Plano de datos (psycopg2):** con esas credenciales abre TCP a `:5432` y ejecuta el
+  `INSERT INTO readings`. Si mañana el Postgres cambia de proveedor, boto3 ni se entera.
+
+El backup S3 es best-effort: si falla, el `INSERT` ya quedó y el request igual devuelve `201`.
 
 **Seguridad (no se envía plano):** `X-Api-Key` + `X-Timestamp` + `X-Signature = HMAC-SHA256(timestamp.body)` con ventana anti-replay (5 min). En producción siempre HTTPS/TLS delante.
 
