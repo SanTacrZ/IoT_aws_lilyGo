@@ -1,0 +1,39 @@
+# Entorno de desarrollo con Docker
+
+## Levantar todo
+```bash
+cd iot-poc/deploy
+docker compose -f docker-compose.dev.yml up -d          # db + api-v1 + api-v2 + rule-engine + seed
+docker compose -f docker-compose.dev.yml --profile demo up -d sim   # (opcional) placas simuladas
+```
+
+## Servicios y puertos
+| Servicio | URL/puerto | Qué es |
+|---|---|---|
+| api-v2 | http://localhost:8001 | `/api/v2/*` + `/dashboard-v2` (sistema autónomo) |
+| api-v1 | http://localhost:8000 | POC de clase (compatibilidad) |
+| db | localhost:5433 | PostgreSQL 16 + TimescaleDB (datos persistentes en volumen) |
+| rule-engine | — | motor de riego: evalúa reglas cada 60 s |
+| seed | — | one-shot: extensión timescale + migración 002 + datos demo |
+| sim | — | placas virtuales que postean firmado HMAC cada 30 s |
+
+## Credenciales dev (`iot-poc/deploy/.env.dev`)
+```
+DEVICE_API_KEY=demo-key-cambiar
+HMAC_SECRET=demo-secret-cambiar
+ADMIN_KEY=demo-admin-cambiar
+```
+**Nunca subir el `.env` real** (solo el example). En AWS van a Secrets Manager.
+
+## Verificar
+```bash
+curl -s localhost:8001/health
+curl -s -H "X-Api-Key: demo-key-cambiar" localhost:8001/api/v2/state
+curl -s -H "X-Admin-Key: demo-admin-cambiar" localhost:8001/api/v2/farms
+docker compose -f docker-compose.dev.yml logs -f rule-engine
+```
+
+## Reset total
+```bash
+docker compose -f docker-compose.dev.yml down -v   # borra datos también
+```

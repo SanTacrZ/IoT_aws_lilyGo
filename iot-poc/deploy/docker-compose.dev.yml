@@ -1,0 +1,105 @@
+name: agrosense-dev
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: iot
+      POSTGRES_PASSWORD: iot
+      POSTGRES_DB: iot
+    ports:
+      - "5433:5432" # host 5433 para no chocar con pg local
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iot -d iot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api-v2: # dashboard-v2 + /api/v2 (autonomo) + comandos
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    command: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "app_v2:app"]
+    env_file: .env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: iot
+      DB_USER: iot
+      DB_PASSWORD: iot
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-v1: # POC de clase (compatibilidad)
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    env_file: .env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: iot
+      DB_USER: iot
+      DB_PASSWORD: iot
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rule-engine: # motor de riego de precision (ciclo cada 60s)
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    command: ["python", "automation/loop.py"]
+    env_file: .env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: iot
+      DB_USER: iot
+      DB_PASSWORD: iot
+      RULE_INTERVAL_S: "60"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  seed: # one-shot: extension timescale + migracion 002 + datos demo
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    command: ["python", "seed_demo.py"]
+    env_file: .env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: iot
+      DB_USER: iot
+      DB_PASSWORD: iot
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  sim: # simulador de placas (opcional: --profile demo)
+    profiles: ["demo"]
+    image: python:3.11-slim
+    volumes:
+      - ../firmware:/sim
+    command: ["python", "/sim/sim_device_v2.py", "http://api-v2:8000", "lilygo-01"]
+    env_file: .env.dev
+    depends_on:
+      api-v2:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata_dev:

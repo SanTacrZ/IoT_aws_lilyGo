@@ -138,18 +138,18 @@ def run_cycle():
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("""SELECT z.zone_id, z.name, z.crop, z.soil_min_pct, z.soil_max_pct,
-                                  z.hysteresis_pct, z.max_irrigation_min,
-                                  COALESCE((SELECT json_agg(x)::json[] FROM (
-                                      SELECT r.rule_id, r.name, r.condition, r.threshold,
-                                             r.action, r.cooldown_min, r.last_fired
-                                      FROM rules r WHERE r.zone_id = z.zone_id AND r.enabled
-                                      ORDER BY r.rule_id) x), ARRAY[]::json[])
+                                  z.hysteresis_pct, z.max_irrigation_min
                            FROM zones z WHERE z.enabled""")
-            for zone in cur.fetchall():
+            for zone_row in cur.fetchall():
                 try:
+                    cur.execute("""SELECT rule_id, name, condition, threshold, action,
+                                          cooldown_min, last_fired FROM rules
+                                   WHERE zone_id = %s AND enabled ORDER BY rule_id""",
+                                (zone_row[0],))
+                    zone = (*zone_row, cur.fetchall())
                     eval_zone(cur, zone, now)
                 except Exception as e:
-                    log.exception("zona %s fallo: %s", zone[0], e)
+                    log.exception("zona %s fallo: %s", zone_row[0], e)
 
 if __name__ == "__main__":
     run_cycle()
