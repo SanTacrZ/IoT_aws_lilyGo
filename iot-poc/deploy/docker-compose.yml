@@ -1,0 +1,7 @@
+services:
+  api: # backend Flask + boto3 (contenedor)
+    build: ../backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000" # en prod poner nginx + TLS delante (443 -> 8000)
