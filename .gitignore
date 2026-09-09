@@ -13,3 +13,6 @@ __pycache__/
 # OS / editores
 .DS_Store
 .vscode/
+
+# Ejercicio local (claves demo, generadas por cp)
+iot-poc/deploy/.env.local
