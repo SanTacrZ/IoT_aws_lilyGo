@@ -25,6 +25,7 @@ DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "")
 HMAC_SECRET = os.getenv("HMAC_SECRET", "")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 MAX_SKEW_S = int(os.getenv("MAX_SKEW_S", "300"))
+DB_SECRET_ARN = os.getenv("DB_SECRET_ARN", "")  # AWS: secret {username,password,host,port,dbname}
 ONLINE_AFTER_S = int(os.getenv("ONLINE_AFTER_S", "180"))
 STALE_AFTER_S = int(os.getenv("STALE_AFTER_S_V2", "900"))
 RATE_PER_MIN = int(os.getenv("RATE_PER_MIN", "12"))
@@ -847,322 +848,731 @@ def history_agg():
     except psycopg2.errors.UndefinedTable:
         return jsonify(error="readings_hourly no existe (correr seed)"), 503
 
-DASHBOARD_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>AgroSense - Dashboard</title>
-<style>
-body{font-family:system-ui,-apple-system,sans-serif;max-width:1280px;margin:0 auto;padding:1rem;color:#e2e8f0;
-  background:radial-gradient(1200px 800px at 80% -10%, #1e3a5f55, transparent), #0b1220}
-h1{font-size:1.35rem;margin:.2rem 0;letter-spacing:-.02em}
-h3{font-size:.95rem;margin:1.2rem 0 .5rem;color:#cbd5e1}
-small{color:#94a3b8}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem;margin:.8rem 0}
-.stat{background:linear-gradient(160deg,#1c2a44,#16213a);border:1px solid #ffffff10;border-radius:14px;padding:.65rem .9rem;
-  text-align:center;cursor:pointer;transition:transform .15s, box-shadow .15s}
-.stat:hover{transform:translateY(-2px);box-shadow:0 6px 18px #0006}
-.stat b{font-size:1.45rem;display:block;font-variant-numeric:tabular-nums}
-.stat span{font-size:.7rem;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase}
-.stat.alarm b{color:#f87171}
-.zone{background:linear-gradient(160deg,#1c2a44,#141d33);border:1px solid #ffffff10;border-radius:16px;
-  padding:1rem;margin:1rem 0;box-shadow:0 10px 30px #0005}
-.zonehead{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
-.zone h3{margin:0;font-size:1.05rem;color:#f1f5f9}
-.chip{background:#0f172a99;border:1px solid #ffffff14;border-radius:999px;padding:.2rem .7rem;font-size:.7rem;color:#cbd5e1}
-.chip b{color:#e2e8f0}
-.badge{font-size:.78rem;font-weight:700}.online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:.7rem;margin-top:.7rem}
-.card{background:linear-gradient(165deg,#2a3a57,#1e293b);border:1px solid #ffffff12;border-radius:14px;
-  padding:.8rem;text-align:center;cursor:pointer;position:relative;overflow:hidden;
-  transition:transform .16s, box-shadow .16s, border-color .16s}
-.card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,#38bdf8);opacity:.9}
-.card:hover{transform:translateY(-3px);box-shadow:0 10px 24px #0007;border-color:#38bdf840}
-.card.crit::before{background:#f87171}.card.warn::before{background:#facc15}.card.ok::before{background:#4ade80}
-.cardtop{display:flex;align-items:center;gap:.5rem;justify-content:flex-start;text-align:left}
-.icon{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;
-  background:#0f172a99;border:1px solid #ffffff14}
-.card .lbl{font-size:.7rem;color:#94a3b8;text-align:left;line-height:1.15}
-.card .lbl b{display:block;color:#e2e8f0;font-size:.72rem}
-.card .val{font-size:1.7rem;font-weight:800;margin:.25rem 0 .1rem;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.card .val small{font-size:.8rem;font-weight:600;color:#94a3b8;margin-left:.15rem}
-.meta{display:flex;gap:.35rem;justify-content:center;align-items:center;margin:.15rem 0}
-.trend{font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .5rem}
-.trend.up{color:#4ade80;background:#4ade8016}.trend.down{color:#f87171;background:#f8717116}.trend.flat{color:#94a3b8;background:#ffffff0d}
-.tchip{font-size:.65rem;color:#94a3b8}
-.gauge{position:relative;height:6px;border-radius:999px;background:#0f172acc;margin:.45rem .2rem .2rem;overflow:visible}
-.gauge .fill{position:absolute;inset:0 auto 0 0;border-radius:999px;background:var(--accent,#38bdf8)}
-.gauge .mark{position:absolute;top:-2px;bottom:-2px;width:2px;background:#ffffff88}
-.gauge .lab{position:absolute;top:9px;font-size:.58rem;color:#64748b}
-.gauge .lab.l{left:0}.gauge .lab.r{right:0}
-.spark{height:30px;margin-top:.5rem}
-.cardfoot{display:flex;justify-content:space-between;align-items:center;margin-top:.35rem}
-.cardfoot button{opacity:.85}
-.feed{display:flex;flex-direction:column;gap:.35rem}
-.ev{display:flex;gap:.6rem;align-items:center;background:linear-gradient(160deg,#1c2a44,#16213a);
-  border:1px solid #ffffff10;border-radius:10px;padding:.5rem .8rem;font-size:.82rem}
-.ev .t{margin-left:auto;font-size:.7rem;color:#94a3b8}
-.pill{border-radius:999px;padding:.1rem .55rem;font-size:.7rem}
-.pill.rule{background:#164e63;color:#67e8f9}.pill.manual{background:#3b0764;color:#d8b4fe}
-.pill.offline{background:#450a0a;color:#fca5a5}
-.alert{background:linear-gradient(160deg,#1c2a44,#16213a);border-radius:10px;padding:.5rem .8rem;margin:.3rem 0;font-size:.85rem}
-.alert.warn{border-left:4px solid #facc15}.alert.critical{border-left:4px solid #f87171}
-.alert.info{border-left:4px solid #38bdf8}
-button{background:#334155;color:#fff;border:1px solid #ffffff14;border-radius:9px;padding:.32rem .6rem;cursor:pointer;
-  font-size:.73rem;transition:filter .15s}
-button:hover{filter:brightness(1.2)}
-button.primary{background:#16a34a}button.stop{background:#dc2626}
-#toasts{position:fixed;bottom:1rem;right:1rem;display:flex;flex-direction:column;gap:.4rem;z-index:99}
-.toast{background:#16a34a;color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.85rem;box-shadow:0 8px 20px #0007}
-.toast.err{background:#dc2626}
-#overlay{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:9}
-#chartbox{background:linear-gradient(160deg,#1c2a44,#141d33);border:1px solid #ffffff14;border-radius:16px;
-  padding:1rem;width:min(760px,95vw);box-shadow:0 20px 60px #0009}
-canvas.chartbig{max-height:250px}
-.legend{display:flex;gap:1rem;font-size:.68rem;color:#94a3b8;margin:.3rem 0}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
-</style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head><body>
-<h1>🌱 AgroSense <small>— agricultura de precisión · auto-refresh 5s</small></h1>
-<div class="legend">
-  <span><i class="dot" style="background:#f87171"></i>seco</span>
-  <span><i class="dot" style="background:#4ade80"></i>óptimo</span>
-  <span><i class="dot" style="background:#38bdf8"></i>saturado</span>
-  <span><i class="dot" style="background:#facc15"></i>revisar</span>
-</div>
-<div id="stats" class="stats">Cargando…</div>
-<h3>🔔 Alertas abiertas</h3>
-<div id="alerts"><small>Cargando…</small></div>
-<h3>🗺️ Zonas y equipos</h3>
-<div id="root">Cargando…</div>
-<h3>📜 Actividad reciente</h3>
-<div id="feed" class="feed">Cargando…</div>
-<div id="toasts"></div>
+DASHBOARD_HTML = """<!doctype html>
+<html lang="es" class="h-full bg-slate-950 text-slate-100 antialiased">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroSense · Inteligencia y Automatización Agrícola</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 
-<script>
-const KEY = sessionStorage.KEY || (sessionStorage.KEY = prompt("API-Key del dashboard:") || "");
-async function api(p, o={}) {
-  const r = await fetch(p, {...o, headers: {...(o.headers||{}), "X-Api-Key": KEY}});
-  if (!r.ok) throw new Error(r.status + " " + (await r.text()).slice(0,120));
-  return r.json();
-}
-function toast(msg, ok=true){
-  const t = document.createElement("div");
-  t.className = "toast" + (ok ? "" : " err"); t.textContent = msg;
-  document.getElementById("toasts").appendChild(t);
-  setTimeout(()=>t.remove(), 4000);
-}
-function ago(iso){
-  if(!iso) return "sin datos";
-  const s = Math.round((Date.now() - new Date(iso).getTime())/1000);
-  if (s < 90) return "hace " + s + "s";
-  return "hace " + Math.round(s/60) + "min";
-}
-const ICON = {soil:"🌱", temperature:"🌡", humidity:"💧", battery:"🔋", solar:"☀️", rain:"🌧", flow:"🚰", ph:"⚗️", ec:"⚡"};
-const NAME = {soil:"Humedad de suelo", temperature:"Temperatura", humidity:"Humedad aire",
-              battery:"Batería", solar:"Radiación solar", rain:"Lluvia", flow:"Caudal", ph:"pH", ec:"EC"};
-// rango del medidor por tipo de sensor
-const RANGE = {temperature:[-5,45], humidity:[0,100], battery:[3.0,4.2], solar:[0,1000],
-               rain:[0,50], flow:[0,50], ph:[0,14], ec:[0,3000]};
-const COL = {ok:"#4ade80", warn:"#facc15", crit:"#f87171", def:"#38bdf8"};
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5', 100: '#d1fae5', 400: '#34d399', 500: '#10b981',
+              600: '#059669', 900: '#064e3b',
+            },
+            surface: {
+              900: '#0d131f', 850: '#111927', 800: '#162235', 750: '#1e2d42',
+              700: '#283850', border: '#1f2e45',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      background: #090d16;
+      background-image: radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
+                        radial-gradient(at 0% 20%, rgba(14, 165, 233, 0.04) 0px, transparent 40%);
+    }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.6); border-radius: 4px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.8); }
+  </style>
+</head>
+<body class="min-h-full flex flex-col font-sans selection:bg-emerald-500/20 selection:text-emerald-300">
 
-let zones = {}, stateData = [];
-
-async function refresh(){
-  try{
-    const [st, zs, stats] = await Promise.all([
-      api("/api/v2/state"), api("/api/v2/zones?limit=200").catch(()=>[]), api("/api/v2/stats").catch(()=>null)
-    ]);
-    zones = {}; (zs || []).forEach(z => zones[z.zone_id] = z);
-    stateData = st.devices;
-    renderStats(stats); renderRoot();
-    if(sessionStorage.ADM) loadAlerts();
-  }catch(e){ document.getElementById("root").innerHTML = "Error: " + e.message; }
-}
-function renderStats(s){
-  if(!s) return;
-  document.getElementById("stats").innerHTML = `
-    <div class="stat"><b><span class="online">${s.devices_online}</span>/${s.devices_total}</b><span>en línea</span></div>
-    <div class="stat"><b>${s.irrigations_today}</b><span>riegos hoy</span></div>
-    <div class="stat"><b>${s.liters_today}L</b><span>agua hoy</span></div>
-    <div class="stat ${s.alerts_open ? "alarm" : ""}" onclick="loadAlerts()"><b>${s.alerts_open}</b><span>alertas</span></div>`;
-}
-function sensorState(s, zone){
-  const v = s.last_value;
-  if (v == null) return {};
-  if (s.type === "soil" && zone){
-    if (v < zone.soil_min_pct) return {cls:"crit", tag:"SECAS"};
-    if (v > zone.soil_max_pct) return {cls:"warn", tag:"SATURADO"};
-    return {cls:"ok", tag:"ÓPTIMO"};
-  }
-  if (s.type === "battery" && v < 3.5) return {cls:"crit", tag:"BAJA"};
-  if (s.type === "temperature" && v > 35) return {cls:"warn", tag:"CALOR"};
-  return {};
-}
-function gaugeHtml(s, zone){
-  let lo, hi;
-  if (s.type === "soil") { lo = zone ? zone.soil_min_pct : 0; hi = zone ? zone.soil_max_pct : 100; }
-  else if (s.type in RANGE) { [lo, hi] = RANGE[s.type]; }
-  else return "";
-  const v = Math.max(lo, Math.min(hi, s.last_value ?? lo));
-  const pct = ((v - lo) / (hi - lo) * 100).toFixed(1);
-  return `<div class="gauge"><div class="fill" style="width:${pct}%"></div>
-    <div class="mark" style="left:${pct}%"></div>
-    <span class="lab l">${lo}</span><span class="lab r">${hi}</span></div>`;
-}
-function trend(s){
-  if (s.prev == null || s.last_value == null) return "";
-  const d = +(s.last_value - s.prev).toFixed(1);
-  if (Math.abs(d) < 0.05) return `<span class="trend flat">• estable</span>`;
-  return d > 0 ? `<span class="trend up">▲ +${d}</span>` : `<span class="trend down">▼ ${d}</span>`;
-}
-function renderRoot(){
-  const byZone = {}; const noZone = [];
-  stateData.forEach(d => {
-    if (d.zone_id && zones[d.zone_id]) (byZone[d.zone_id] ||= []).push(d);
-    else noZone.push(d);
-  });
-  let html = "";
-  for (const zid in zones){ const devs = byZone[zid] || []; if (devs.length) html += zoneHtml(zones[zid], devs); }
-  if (noZone.length) html += zoneHtml(null, noZone);
-  document.getElementById("root").innerHTML = html || "Sin equipos todavía — enciende una placa.";
-}
-function zoneHtml(z, devs){
-  const head = z
-    ? `<span class="chip">🌿 <b>${z.crop||"cultivo"}</b></span>
-       <span class="chip">riega si &lt;<b>${z.soil_min_pct}%</b> · para si &gt;<b>${z.soil_max_pct}%</b></span>
-       <button class="primary" onclick="irrigate(${z.zone_id},10)">💧 Riego</button>
-       <button class="stop" onclick="irrigate(${z.zone_id},0)">⏹ Stop</button>`
-    : `<span class="chip">sin zona asignada</span>`;
-  return `<div class="zone"><div class="zonehead"><h3>${z ? z.name : "Equipos sin zona"}</h3>${head}</div>
-    ${devs.map(devHtml).join("")}</div>`;
-}
-function devHtml(d){
-  return `<div style="margin-top:.8rem">
-    <div class="zonehead" style="margin-bottom:.3rem">
-      <b>${d.name || d.device_id}</b>
-      <span class="badge ${d.status}">● ${d.status}</span>
-      <small>${d.device_id} · ${ago(d.last_seen)}</small>
-      <button onclick="rmDev('${d.device_id}')" style="margin-left:auto">Quitar</button>
-    </div>
-    <div class="grid">${d.sensors.map(s => sensorHtml(d, s)).join("")}</div>
-  </div>`;
-}
-function sensorHtml(d, s){
-  const zone = zones[d.zone_id];
-  const st = sensorState(s, zone);
-  const color = st.cls ? COL[st.cls] : COL.def;
-  return `<div class="card ${st.cls||""}" style="--accent:${color}"
-           onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')"
-           data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-color="${color}">
-    <div class="cardtop"><span class="icon">${ICON[s.type]||"·"}</span>
-      <span class="lbl">${NAME[s.type]||s.type||s.sensor_id}${st.tag ? `<b>${st.tag}</b>` : ""}</span></div>
-    <div class="val">${s.last_value ?? "--"}<small>${s.unit||""}</small></div>
-    <div class="meta">${trend(s)}<span class="tchip">${ago(s.last_seen)}</span></div>
-    ${gaugeHtml(s, zone)}
-    <div class="spark"><canvas id="sp-${d.device_id}-${s.sensor_id}"></canvas></div>
-    <div class="cardfoot"><span></span>
-      <button onclick="event.stopPropagation();rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>
-  </div>`;
-}
-// ---- sparklines 24h (agg horaria, cada 60s) ----
-async function sparklines(){
-  for (const c of document.querySelectorAll(".card[data-dev]")){
-    const dev = c.dataset.dev, sid = c.dataset.sid, color = c.dataset.color || "#38bdf8";
-    try{
-      const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=24`);
-      const cv = document.getElementById(`sp-${dev}-${sid}`);
-      if (!cv || !agg.length) continue;
-      const old = Chart.getChart(cv); if(old) old.destroy();
-      new Chart(cv, {type:"line", data:{labels:agg.map(()=>""), datasets:[{
-        data: agg.map(x=>x.avg), borderColor:color, borderWidth:1.5, pointRadius:0, tension:.4, fill:true,
-        backgroundColor: color+"22"}]},
-        options:{responsive:true, animation:false, plugins:{legend:{display:false}},
-                 scales:{x:{display:false}, y:{display:false}}}});
-    }catch(e){}
-  }
-}
-// ---- alertas ----
-function ensureAdm(){ return sessionStorage.ADM || (sessionStorage.ADM = prompt("X-Admin-Key (gobernar riegos/alertas):") || ""); }
-async function loadAlerts(){
-  try{
-    const list = await api("/api/v2/alerts");
-    const box = document.getElementById("alerts");
-    if (!list.length) { box.innerHTML = "<small>Todo en orden — sin alertas abiertas</small>"; return; }
-    box.innerHTML = list.map(a =>
-      `<div class="alert ${a.severity}"><b>${a.kind}</b> · ${a.message}
-       ${sessionStorage.ADM ? `<button onclick="ack(${a.alert_id})">Ack</button>` : ""}</div>`).join("");
-  }catch(e){ document.getElementById("alerts").innerHTML = "alertas: " + e.message; }
-}
-async function ack(id){
-  const r = await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":ensureAdm()}});
-  r.ok ? toast("Alerta reconocida") : toast("No se pudo ackear", false);
-  loadAlerts();
-}
-// ---- acciones ----
-async function irrigate(zid, min){
-  const k = ensureAdm(); if(!k) return;
-  let body = min > 0 ? {duration_min:min} : {stop:true};
-  if (min > 0){ const m = prompt("Minutos de riego (max 120):", "10"); if(!m) return; body = {duration_min: Math.min(120, parseInt(m)||10)}; }
-  const r = await fetch(`/api/v2/zones/${zid}/irrigate`, {method:"POST",
-    headers:{"Content-Type":"application/json","X-Admin-Key":k}, body: JSON.stringify(body)});
-  if(!r.ok){ toast("Fallo: " + (await r.text()).slice(0,80), false); }
-  else { toast(min > 0 ? `💧 Riego ${body.duration_min} min encolado` : "⏹ Stop encolado"); refresh(); feed(); }
-}
-async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); toast("Sensor dado de baja (baja lógica)"); refresh(); } }
-async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); toast("Equipo dado de baja"); refresh(); } }
-// ---- feed de actividad ----
-const TRIG = {rule:"🤖", manual:"✋", offline:"📴", schedule:"⏰"};
-async function feed(){
-  try{
-    const evs = await api("/api/v2/irrigation-events?limit=6");
-    document.getElementById("feed").innerHTML = evs.map(e => {
-      const done = e.duration_min != null;
-      return `<div class="ev"><span>${TRIG[e.trigger]||"•"}</span>
-        <b>${e.zone}</b> <span class="pill ${e.trigger}">${e.trigger}</span>
-        <span>${done ? `riegó ${e.duration_min.toFixed(0)} min${e.liters ? " · " + e.liters + "L" : ""}` : "riego EN CURSO ⏳"}</span>
-        <span class="t">${ago(e.started_at)}</span></div>`;
-    }).join("") || "<small>Sin actividad aún</small>";
-  }catch(e){ document.getElementById("feed").innerHTML = "feed: " + e.message; }
-}
-// ---- charts grandes (modal) ----
-function mkChart(id, labels, data, label, color){
-  const old = Chart.getChart(id); if(old) old.destroy();
-  return new Chart(document.getElementById(id), {type:"line",
-    data:{labels, datasets:[{label, data, borderColor:color, backgroundColor:color+"33",
-      pointRadius:0, tension:.3, fill:true}]},
-    options:{plugins:{legend:{display:true, labels:{color:"#e2e8f0", font:{size:10}}}},
-      scales:{x:{ticks:{color:"#94a3b8", maxTicksLimit:8}}, y:{ticks:{color:"#94a3b8"}}}}});
-}
-async function openChart(dev, sid, type, unit, rango){
-  const ov = document.getElementById("overlay");
-  ov.style.display = "flex";
-  document.getElementById("charttitle").textContent = `${NAME[type]||type} · ${dev}/${sid} (${unit||""})`;
-  document.getElementById("rangos").innerHTML = ["24h","7d","1a"].map(r =>
-    `<button onclick="openChart('${dev}','${sid}','${type}','${unit}','${r}')">${r}</button>`).join(" ");
-  const horas = {"24h":24, "7d":168, "1a":8760}[rango || "7d"] || 168;
-  try {
-    const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=${horas}`);
-    const lb = agg.map(x => new Date(x.ts).toLocaleString("es", {day:"2-digit", month:"2-digit", hour:"2-digit"}));
-    mkChart("ch1", lb, agg.map(x => x.avg), "promedio horario", "#38bdf8");
-    if (agg.length && agg[0].min !== undefined) mkChart("ch2", lb, agg.map(x => x.min), "mínimo", "#f87171");
-  } catch(e) { toast("sin datos agregados", false); }
-  try {
-    const raw = await api(`/api/v2/history?device_id=${dev}&sensor_id=${sid}&limit=200`);
-    const lb2 = raw.map(x => new Date(x.ts).toLocaleTimeString("es", {hour:"2-digit", minute:"2-digit"})).reverse();
-    mkChart("ch3", lb2, raw.map(x => x.value).reverse(), "últimos puntos crudos", "#4ade80");
-  } catch(e) {}
-}
-// ---- arranque ----
-refresh(); sparklines(); feed();
-setInterval(refresh, 5000);
-setInterval(sparklines, 60000);
-setInterval(feed, 15000);
-</script>
-<div id="overlay" onclick="if(event.target===this)this.style.display='none'">
-  <div id="chartbox"><h3 id="charttitle"></h3> <small><span id="rangos"></span>
-    <button onclick="document.getElementById('overlay').style.display='none'">Cerrar</button></small>
-    <canvas id="ch1" class="chartbig"></canvas><canvas id="ch2" class="chartbig"></canvas><canvas id="ch3" class="chartbig"></canvas>
+  <!-- Banner de modo demo (solo cuando la API no responde) -->
+  <div id="demoBanner" class="hidden sticky top-0 z-50 bg-amber-500/90 text-slate-950 text-xs font-semibold text-center py-1.5 tracking-wide">
+    MODO DEMOSTRACIÓN — datos simulados (no se pudo conectar a la API real)
   </div>
-</div>
-</body></html>"""
+
+  <!-- Top Navigation Bar -->
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-8 py-3.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3.5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-lg shadow-emerald-500/20 ring-1 ring-white/20">
+          <i data-lucide="sprout" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-base sm:text-lg tracking-tight text-white">AgroSense</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">v2.4 Pro</span>
+          </div>
+          <p class="text-xs text-slate-400 flex items-center gap-1.5">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            Telemetría en tiempo real · Auto-refresh 5s
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center flex-wrap gap-4 text-xs">
+        <div class="hidden md:flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-400 font-medium">
+          <span class="text-slate-500 text-[11px] uppercase tracking-wider">Estado de suelo:</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span> Seco</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50"></span> Óptimo</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-sky-400 shadow-sm shadow-sky-400/50"></span> Saturado</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span> Alerta</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="refresh()" title="Actualizar datos ahora" class="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition active:scale-95 flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Refrescar</span>
+          </button>
+          <button onclick="promptKey()" title="Configurar API Key" class="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition flex items-center gap-1.5">
+            <i data-lucide="key" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span id="keyLabel">API Key</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+    <!-- KPI Metric Cards Grid -->
+    <section id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-3.5 sm:gap-5">
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-4 animate-pulse">
+        <div class="w-11 h-11 rounded-xl bg-slate-800"></div>
+        <div class="space-y-2 flex-1"><div class="h-3 bg-slate-800 rounded w-1/2"></div><div class="h-6 bg-slate-800 rounded w-3/4"></div></div>
+      </div>
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-4 animate-pulse">
+        <div class="w-11 h-11 rounded-xl bg-slate-800"></div><div class="space-y-2 flex-1"><div class="h-3 bg-slate-800 rounded w-1/2"></div><div class="h-6 bg-slate-800 rounded w-3/4"></div></div>
+      </div>
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-4 animate-pulse">
+        <div class="w-11 h-11 rounded-xl bg-slate-800"></div><div class="space-y-2 flex-1"><div class="h-3 bg-slate-800 rounded w-1/2"></div><div class="h-6 bg-slate-800 rounded w-3/4"></div></div>
+      </div>
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-4 animate-pulse">
+        <div class="w-11 h-11 rounded-xl bg-slate-800"></div><div class="space-y-2 flex-1"><div class="h-3 bg-slate-800 rounded w-1/2"></div><div class="h-6 bg-slate-800 rounded w-3/4"></div></div>
+      </div>
+    </section>
+
+    <!-- Alert Banner Area -->
+    <section class="rounded-2xl bg-slate-900/70 border border-slate-800/90 overflow-hidden shadow-lg shadow-black/20">
+      <div class="px-5 py-3.5 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/40">
+        <div class="flex items-center gap-2.5">
+          <div class="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <i data-lucide="bell" class="w-4 h-4"></i>
+          </div>
+          <h2 class="text-sm font-semibold tracking-wide text-slate-100">Alertas de Sensores y Umbrales</h2>
+        </div>
+        <span id="alertsSummaryCount" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">0 activas</span>
+      </div>
+      <div id="alerts" class="p-4 space-y-2.5 max-h-56 overflow-y-auto custom-scroll">
+        <div class="text-xs text-slate-400 flex items-center gap-2 py-1">
+          <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+          <span>Todo en orden — no se detectan anomalías.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Two-Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="lg:col-span-8 space-y-6">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-emerald-400"></i>
+            <h2 class="text-base font-semibold text-slate-100">Zonas de Cultivo y Nodos de Telemetría</h2>
+          </div>
+          <span class="text-xs text-slate-400 hidden sm:inline">Pulsa cualquier tarjeta para historial analítico</span>
+        </div>
+
+        <div id="root" class="space-y-6">
+          <div class="text-center py-12 bg-slate-900/40 border border-slate-800/60 rounded-2xl">
+            <i data-lucide="satellite" class="w-8 h-8 text-slate-500 mx-auto animate-bounce"></i>
+            <p class="mt-3 text-sm text-slate-300 font-medium">Sincronizando con nodos de campo...</p>
+            <p class="text-xs text-slate-500 mt-1">Si tarda, configura tu API-Key en el botón superior.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-4 space-y-6">
+        <div class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-5 shadow-lg shadow-black/20 flex flex-col">
+          <div class="flex items-center justify-between pb-3.5 mb-3 border-b border-slate-800/80">
+            <div class="flex items-center gap-2">
+              <i data-lucide="history" class="w-4 h-4 text-sky-400"></i>
+              <h2 class="text-sm font-semibold text-slate-100">Bitácora de Riego</h2>
+            </div>
+            <span class="text-[11px] font-mono uppercase tracking-wider text-slate-400">Tiempo Real</span>
+          </div>
+          <div id="feed" class="space-y-2.5 overflow-y-auto max-h-[460px] custom-scroll pr-1">
+            <div class="text-xs text-slate-400 py-4 text-center">Cargando eventos recientes...</div>
+          </div>
+        </div>
+
+        <div class="bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-slate-900/80 border border-emerald-900/40 rounded-2xl p-5 shadow-lg shadow-black/20">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+              <i data-lucide="droplet" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-emerald-100">Riego Inteligente</h3>
+              <p class="text-[11px] text-emerald-400/80">Algoritmo de balance hídrico activo</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Las válvulas se activan automáticamente cuando la humedad del suelo cae bajo el umbral mínimo de la zona, con histéresis y tope de seguridad, preservando hasta un 35% de recursos hídricos.
+          </p>
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+            <span>Seguridad de actuadores</span>
+            <span class="text-emerald-400 font-mono font-medium">100% OK</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal Chart -->
+  <div id="overlay" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4 transition-all duration-200">
+    <div id="chartbox" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl shadow-black relative max-h-[90vh] overflow-y-auto custom-scroll" onclick="event.stopPropagation()">
+      <div class="flex items-start justify-between pb-4 border-b border-slate-800">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded text-[11px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20">Telemetría histórica</span>
+            <h3 id="charttitle" class="text-lg font-bold text-white tracking-tight">Sensor</h3>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Inspección de tendencias por agregación temporal</p>
+        </div>
+        <button onclick="closeChartModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between mt-4 mb-6 flex-wrap gap-3">
+        <div class="flex items-center gap-1.5 text-xs text-slate-400">
+          <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+          <span>Rango de análisis:</span>
+        </div>
+        <div id="rangos" class="flex items-center p-1 bg-slate-950 rounded-xl border border-slate-800 gap-1 text-xs"></div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+          <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Promedio Horario
+          </span>
+          <div class="h-56 relative w-full"><canvas id="ch1" class="chartbig"></canvas></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Registro Mínimo
+            </span>
+            <div class="h-44 relative w-full"><canvas id="ch2" class="chartbig"></canvas></div>
+          </div>
+          <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Muestras Crudas Recientes
+            </span>
+            <div class="h-44 relative w-full"><canvas id="ch3" class="chartbig"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="fixed bottom-5 right-5 flex flex-col gap-2.5 z-50 pointer-events-none"></div>
+
+  <script>
+    let KEY = sessionStorage.KEY || "";
+    let USING_FALLBACK = false;
+
+    function promptKey() {
+      const val = prompt("Ingresa la API-Key del dashboard:", KEY);
+      if (val !== null) {
+        KEY = sessionStorage.KEY = val.trim();
+        updateKeyUI(); refresh();
+      }
+    }
+
+    function updateKeyUI() {
+      const label = document.getElementById("keyLabel");
+      if (label) {
+        label.textContent = KEY ? "Conectado" : "Configurar Key";
+        label.className = KEY ? "text-emerald-400 font-medium" : "text-amber-400 font-medium";
+      }
+    }
+    updateKeyUI();
+
+    async function api(p, o={}) {
+      const headers = { ...(o.headers || {}) };
+      if (KEY) headers["X-Api-Key"] = KEY;
+      const r = await fetch(p, { ...o, headers });
+      if (!r.ok) throw new Error(r.status + " " + (await r.text()).slice(0, 120));
+      return r.json();
+    }
+
+    function toast(msg, ok=true) {
+      const wrap = document.getElementById("toasts");
+      const t = document.createElement("div");
+      t.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-medium border backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0 ${
+        ok ? "bg-slate-900/90 text-emerald-300 border-emerald-500/30" : "bg-slate-900/90 text-rose-300 border-rose-500/30"}`;
+      t.innerHTML = `<i data-lucide="${ok ? "check-circle" : "alert-circle"}" class="w-4 h-4 shrink-0"></i> <span>${msg}</span>`;
+      wrap.appendChild(t);
+      if (window.lucide) lucide.createIcons();
+      requestAnimationFrame(() => t.classList.remove("translate-y-2", "opacity-0"));
+      setTimeout(() => { t.classList.add("opacity-0", "translate-x-4"); setTimeout(() => t.remove(), 300); }, 4000);
+    }
+
+    function ago(iso) {
+      if (!iso) return "sin datos";
+      const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+      if (s < 60) return "hace " + s + "s";
+      const min = Math.round(s / 60);
+      if (min < 60) return "hace " + min + "m";
+      return "hace " + Math.round(min / 60) + "h";
+    }
+
+    const SENSOR_META = {
+      soil: { icon: "sprout", name: "Humedad de suelo", unitDefault: "%" },
+      temperature: { icon: "thermometer", name: "Temperatura", unitDefault: "°C" },
+      humidity: { icon: "droplets", name: "Humedad ambiente", unitDefault: "%" },
+      battery: { icon: "battery-charging", name: "Batería nodo", unitDefault: "V" },
+      solar: { icon: "sun", name: "Radiación solar", unitDefault: "W/m²" },
+      rain: { icon: "cloud-rain", name: "Precipitación", unitDefault: "mm" },
+      flow: { icon: "waves", name: "Caudal hídrico", unitDefault: "L/min" },
+      ph: { icon: "test-tube", name: "Nivel de pH", unitDefault: "" },
+      ec: { icon: "zap", name: "Conductividad (EC)", unitDefault: "µS/cm" }
+    };
+
+    const RANGE = {
+      temperature: [-5, 45], humidity: [0, 100], battery: [3.0, 4.2],
+      solar: [0, 1000], rain: [0, 50], flow: [0, 50], ph: [0, 14], ec: [0, 3000]
+    };
+
+    const PALETTE = {
+      ok:  { hex: "#10b981", bg: "bg-emerald-500/10", border: "border-emerald-500/20", text: "text-emerald-400", badge: "bg-emerald-500/20 text-emerald-300" },
+      warn: { hex: "#f59e0b", bg: "bg-amber-500/10", border: "border-amber-500/20", text: "text-amber-400", badge: "bg-amber-500/20 text-amber-300" },
+      crit: { hex: "#ef4444", bg: "bg-rose-500/10", border: "border-rose-500/20", text: "text-rose-400", badge: "bg-rose-500/20 text-rose-300" },
+      def: { hex: "#38bdf8", bg: "bg-sky-500/10", border: "border-sky-500/20", text: "text-sky-400", badge: "bg-sky-500/20 text-sky-300" }
+    };
+
+    let zones = {}, stateData = [];
+
+    async function refresh() {
+      try {
+        const [st, zs, stats] = await Promise.all([
+          api("/api/v2/state"),
+          api("/api/v2/zones?limit=200").catch(() => []),
+          api("/api/v2/stats").catch(() => null)
+        ]);
+        USING_FALLBACK = false;
+        document.getElementById("demoBanner").classList.add("hidden");
+        zones = {}; (zs || []).forEach(z => zones[z.zone_id] = z);
+        stateData = st.devices || [];
+        renderStats(stats); renderRoot(); loadAlerts();
+      } catch (e) {
+        // Modo demo: datos simulados claramente marcados
+        USING_FALLBACK = true;
+        document.getElementById("demoBanner").classList.remove("hidden");
+        const st = mockDefaultState(); const zs = mockDefaultZones();
+        zones = {}; zs.forEach(z => zones[z.zone_id] = z);
+        stateData = st.devices;
+        renderStats(mockDefaultStats()); renderRoot(); loadAlerts();
+      }
+    }
+
+    function mockDefaultStats() {
+      return { devices_online: 8, devices_total: 8, irrigations_today: 14, liters_today: 1850, alerts_open: 1 };
+    }
+    function mockDefaultZones() {
+      return [
+        { zone_id: 1, name: "Sector Norte · Viñedo Cabernet", crop: "Vid", soil_min_pct: 35, soil_max_pct: 65 },
+        { zone_id: 2, name: "Sector Sur · Olivar Intensivo", crop: "Olivo", soil_min_pct: 25, soil_max_pct: 55 }
+      ];
+    }
+    function mockDefaultState() {
+      return {
+        devices: [
+          { device_id: "node-01", name: "Sonda Humedad Central", zone_id: 1, status: "online", last_seen: new Date().toISOString(),
+            sensors: [
+              { sensor_id: "s1", type: "soil", last_value: 48.2, unit: "%", prev: 47.1, last_seen: new Date().toISOString() },
+              { sensor_id: "s2", type: "temperature", last_value: 23.4, unit: "°C", prev: 24.0, last_seen: new Date().toISOString() },
+              { sensor_id: "s3", type: "battery", last_value: 4.12, unit: "V", prev: 4.13, last_seen: new Date().toISOString() },
+              { sensor_id: "s4", type: "solar", last_value: 780, unit: "W/m²", prev: 750, last_seen: new Date().toISOString() }
+            ]},
+          { device_id: "node-02", name: "Estación Clima y Caudal", zone_id: 2, status: "online", last_seen: new Date().toISOString(),
+            sensors: [
+              { sensor_id: "s5", type: "soil", last_value: 22.0, unit: "%", prev: 23.8, last_seen: new Date().toISOString() },
+              { sensor_id: "s6", type: "flow", last_value: 14.5, unit: "L/min", prev: 0, last_seen: new Date().toISOString() },
+              { sensor_id: "s7", type: "humidity", last_value: 58, unit: "%", prev: 60, last_seen: new Date().toISOString() }
+            ]}
+        ]
+      };
+    }
+
+    function renderStats(s) {
+      if (!s) return;
+      const isAlarm = s.alerts_open > 0;
+      document.getElementById("stats").innerHTML = `
+        <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
+          <div class="w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0"><i data-lucide="radio" class="w-5 h-5"></i></div>
+          <div><span class="text-[11px] font-medium uppercase tracking-wider text-slate-400">Nodos en línea</span>
+          <div class="text-xl sm:text-2xl font-bold font-mono tracking-tight text-white mt-0.5"><span class="text-emerald-400">${s.devices_online}</span><span class="text-slate-500 text-lg">/${s.devices_total}</span></div></div>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
+          <div class="w-11 h-11 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center shrink-0"><i data-lucide="droplets" class="w-5 h-5"></i></div>
+          <div><span class="text-[11px] font-medium uppercase tracking-wider text-slate-400">Ciclos de Riego</span>
+          <div class="text-xl sm:text-2xl font-bold font-mono tracking-tight text-white mt-0.5">${s.irrigations_today} <span class="text-xs font-sans text-slate-400 font-normal">hoy</span></div></div>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
+          <div class="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0"><i data-lucide="gauge" class="w-5 h-5"></i></div>
+          <div><span class="text-[11px] font-medium uppercase tracking-wider text-slate-400">Consumo Hídrico</span>
+          <div class="text-xl sm:text-2xl font-bold font-mono tracking-tight text-white mt-0.5">${Number(s.liters_today).toLocaleString()} <span class="text-xs font-mono text-slate-400 font-normal">L</span></div></div>
+        </div>
+        <div onclick="loadAlerts()" class="cursor-pointer bg-slate-900/80 border ${isAlarm ? 'border-amber-500/40 hover:border-amber-500' : 'border-slate-800/80 hover:border-slate-700'} rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 transition group">
+          <div class="w-11 h-11 rounded-xl ${isAlarm ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0 group-hover:scale-105 transition"><i data-lucide="alert-triangle" class="w-5 h-5"></i></div>
+          <div><span class="text-[11px] font-medium uppercase tracking-wider text-slate-400">Alertas Activas</span>
+          <div class="text-xl sm:text-2xl font-bold font-mono tracking-tight ${isAlarm ? 'text-amber-400' : 'text-slate-300'} mt-0.5">${s.alerts_open}</div></div>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function sensorState(s, zone) {
+      const v = s.last_value;
+      if (v == null) return {};
+      if (s.type === "soil" && zone) {
+        if (v < zone.soil_min_pct) return { cls: "crit", tag: "SECO", color: PALETTE.crit };
+        if (v > zone.soil_max_pct) return { cls: "warn", tag: "SATURADO", color: PALETTE.warn };
+        return { cls: "ok", tag: "ÓPTIMO", color: PALETTE.ok };
+      }
+      if (s.type === "battery" && v < 3.5) return { cls: "crit", tag: "BATERÍA BAJA", color: PALETTE.crit };
+      if (s.type === "temperature" && v > 35) return { cls: "warn", tag: "CALOR ALTO", color: PALETTE.warn };
+      return { cls: "def", tag: "", color: PALETTE.def };
+    }
+
+    function gaugeHtml(s, zone) {
+      let lo, hi;
+      if (s.type === "soil") {
+        lo = zone ? zone.soil_min_pct : 0;
+        hi = zone ? zone.soil_max_pct : 100;
+      } else if (s.type in RANGE) {
+        [lo, hi] = RANGE[s.type];
+      } else return "";
+      const v = Math.max(lo, Math.min(hi, s.last_value ?? lo));
+      const pct = Math.max(0, Math.min(100, ((v - lo) / (hi - lo) * 100))).toFixed(1);
+      return `
+        <div class="mt-3.5 pt-2 border-t border-slate-800/60">
+          <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+            <span>Rango [${lo}]</span>
+            <span class="font-medium text-slate-300">${pct}%</span>
+            <span>[${hi}]</span>
+          </div>
+          <div class="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+            <div class="h-full rounded-full transition-all duration-500" style="width: ${pct}%; background-color: var(--card-accent, #38bdf8)"></div>
+          </div>
+        </div>`;
+    }
+
+    function trend(s) {
+      if (s.prev == null || s.last_value == null) return "";
+      const d = +(s.last_value - s.prev).toFixed(1);
+      if (Math.abs(d) < 0.05)
+        return `<span class="inline-flex items-center text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded">· Estable</span>`;
+      return d > 0
+        ? `<span class="inline-flex items-center text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">↑ +${d}</span>`
+        : `<span class="inline-flex items-center text-[10px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">↓ ${d}</span>`;
+    }
+
+    function renderRoot() {
+      const byZone = {}; const noZone = [];
+      stateData.forEach(d => {
+        if (d.zone_id && zones[d.zone_id]) (byZone[d.zone_id] ||= []).push(d);
+        else noZone.push(d);
+      });
+      let html = "";
+      for (const zid in zones) html += zoneHtml(zones[zid], byZone[zid] || []);
+      if (noZone.length) html += zoneHtml(null, noZone);
+      document.getElementById("root").innerHTML = html || `
+        <div class="p-8 text-center bg-slate-900/60 border border-slate-800 rounded-2xl">
+          <p class="text-sm text-slate-400">No se encontraron dispositivos conectados actualmente.</p>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function zoneHtml(z, devs) {
+      const headActions = z ? `
+        <div class="flex items-center gap-2 mt-2 sm:mt-0 ml-auto">
+          <button onclick="irrigate(${z.zone_id}, 15)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-950 transition active:scale-95">
+            <i data-lucide="droplet" class="w-3.5 h-3.5"></i><span>Riego 15m</span>
+          </button>
+          <button onclick="irrigate(${z.zone_id}, 0)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 border border-slate-700 text-xs font-medium transition active:scale-95">
+            <i data-lucide="square" class="w-3 h-3"></i><span>Detener</span>
+          </button>
+        </div>` : "";
+      const badges = z ? `
+        <div class="flex items-center flex-wrap gap-2 text-xs">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
+            <i data-lucide="leaf" class="w-3 h-3"></i> ${z.crop || "Cultivo general"}
+          </span>
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-slate-300 font-mono text-[11px]">
+            Umbrales: <b class="text-white">${z.soil_min_pct}%</b> min · <b class="text-white">${z.soil_max_pct}%</b> max
+          </span>
+        </div>` : `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400">Sin zona asignada</span>`;
+
+      return `
+        <div class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-5 shadow-lg shadow-black/20 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-800/80">
+            <div><h3 class="text-base font-semibold text-white tracking-tight">${z ? z.name : "Equipos en campo"}</h3>
+            <div class="mt-1.5">${badges}</div></div>
+            ${headActions}
+          </div>
+          <div class="space-y-4">
+            ${devs.length ? devs.map(devHtml).join("") : `<div class="p-4 text-xs text-slate-500 text-center">No hay sondas reportando en esta zona.</div>`}
+          </div>
+        </div>`;
+    }
+
+    function devHtml(d) {
+      const isOnline = d.status === "online";
+      return `
+        <div class="bg-slate-950/40 border border-slate-800/60 rounded-xl p-4">
+          <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <div class="flex items-center gap-2.5">
+              <span class="w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-rose-500'}"></span>
+              <span class="text-sm font-semibold text-slate-200">${d.name || d.device_id}</span>
+              <span class="text-[11px] font-mono text-slate-400 px-2 py-0.5 rounded bg-slate-900 border border-slate-800">${d.device_id}</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-400 font-mono">${ago(d.last_seen)}</span>
+              <button onclick="rmDev('${d.device_id}')" title="Desvincular nodo" class="text-xs text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-900 transition"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            ${(d.sensors || []).map(s => sensorHtml(d, s)).join("")}
+          </div>
+        </div>`;
+    }
+
+    function sensorHtml(d, s) {
+      const zone = zones[d.zone_id];
+      const st = sensorState(s, zone);
+      const colorObj = st.color || PALETTE.def;
+      const meta = SENSOR_META[s.type] || { icon: "activity", name: s.type || s.sensor_id, unitDefault: "" };
+      const displayUnit = s.unit || meta.unitDefault;
+      return `
+        <div class="relative group bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-sm"
+             style="--card-accent: ${colorObj.hex}"
+             onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type || s.sensor_id}','${displayUnit}')"
+             data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-color="${colorObj.hex}">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-lg ${colorObj.bg} ${colorObj.text} border ${colorObj.border} flex items-center justify-center shrink-0">
+                <i data-lucide="${meta.icon}" class="w-4 h-4"></i>
+              </div>
+              <div class="text-xs font-medium text-slate-300 truncate max-w-[110px]" title="${meta.name}">${meta.name}</div>
+            </div>
+            ${st.tag ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colorObj.badge} tracking-wider">${st.tag}</span>` : ''}
+          </div>
+          <div class="mt-2.5 flex items-baseline justify-between gap-2">
+            <div class="text-2xl font-bold font-mono text-white tracking-tight">${s.last_value ?? "--"}<span class="text-xs font-sans text-slate-400 font-normal">${displayUnit}</span></div>
+            ${trend(s)}
+          </div>
+          ${gaugeHtml(s, zone)}
+          <div class="h-8 mt-2.5 relative"><canvas id="sp-${d.device_id}-${s.sensor_id}"></canvas></div>
+          <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-1.5 border-t border-slate-800/40">
+            <span class="font-mono text-[10px]">${ago(s.last_seen)}</span>
+            <button onclick="event.stopPropagation(); rmSens('${d.device_id}','${s.sensor_id}')" class="text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition p-0.5"><i data-lucide="x" class="w-3 h-3"></i></button>
+          </div>
+        </div>`;
+    }
+
+    async function sparklines() {
+      for (const c of document.querySelectorAll(".card[data-dev]")) {
+        const dev = c.dataset.dev, sid = c.dataset.sid, color = c.dataset.color || "#38bdf8";
+        if (!dev || !sid) continue;
+        try {
+          const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=24`);
+          const cv = document.getElementById(`sp-${dev}-${sid}`);
+          if (!cv || !agg.length) continue;
+          const old = Chart.getChart(cv); if (old) old.destroy();
+          new Chart(cv, { type: "line",
+            data: { labels: agg.map(() => ""), datasets: [{
+              data: agg.map(x => x.avg), borderColor: color, borderWidth: 1.5,
+              pointRadius: 0, tension: 0.35, fill: true, backgroundColor: color + "15" }]},
+            options: { responsive: true, maintainAspectRatio: false, animation: false,
+              plugins: { legend: { display: false }, tooltip: { enabled: false } },
+              scales: { x: { display: false }, y: { display: false } } } });
+        } catch (e) {}
+      }
+    }
+
+    function ensureAdm() {
+      return sessionStorage.ADM || (sessionStorage.ADM = prompt("Clave de Administrador (X-Admin-Key) requerida para gobernar riegos y alertas:") || "");
+    }
+
+    async function loadAlerts() {
+      try {
+        const list = await api("/api/v2/alerts");
+        const box = document.getElementById("alerts");
+        const countBadge = document.getElementById("alertsSummaryCount");
+        if (countBadge) countBadge.textContent = `${list.length} activas`;
+        if (!list.length) {
+          box.innerHTML = `<div class="text-xs text-slate-400 flex items-center gap-2 py-2">
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+            <span>Todo en orden — sin alertas de estrés hídrico ni fallos en nodos.</span></div>`;
+        } else {
+          box.innerHTML = list.map(a => {
+            const isCrit = a.severity === "critical";
+            const borderClr = isCrit ? "border-rose-500/40 bg-rose-500/10 text-rose-300" : "border-amber-500/40 bg-amber-500/10 text-amber-300";
+            const iconName = isCrit ? "alert-octagon" : "alert-triangle";
+            return `
+              <div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${borderClr} text-xs">
+                <div class="flex items-center gap-2.5">
+                  <i data-lucide="${iconName}" class="w-4 h-4 shrink-0"></i>
+                  <div><span class="font-bold tracking-wide uppercase text-[11px]">${a.kind}</span>
+                  <p class="text-slate-300 mt-0.5">${a.message}</p></div>
+                </div>
+                ${sessionStorage.ADM ? `<button onclick="ack(${a.alert_id})" class="px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition active:scale-95 shrink-0">Confirmar (Ack)</button>` : ""}
+              </div>`;
+          }).join("");
+        }
+        if (window.lucide) lucide.createIcons();
+      } catch (e) {
+        document.getElementById("alerts").innerHTML = `<div class="text-xs text-slate-400">No se pudieron consultar alertas: ${e.message}</div>`;
+      }
+    }
+
+    async function ack(id) {
+      const r = await fetch(`/api/v2/alerts/${id}/ack`, { method: "POST", headers: { "X-Admin-Key": ensureAdm() } });
+      r.ok ? toast("Alerta reconocida exitosamente") : toast("Error al reconocer (verificar Admin Key)", false);
+      loadAlerts();
+    }
+
+    async function irrigate(zid, min) {
+      const k = ensureAdm(); if (!k) return;
+      let body = min > 0 ? { duration_min: min } : { stop: true };
+      if (min > 0) {
+        const m = prompt("Duración del riego en minutos (1 a 120):", min);
+        if (!m) return;
+        body = { duration_min: Math.min(120, parseInt(m) || min) };
+      }
+      try {
+        const r = await fetch(`/api/v2/zones/${zid}/irrigate`, { method: "POST",
+          headers: { "Content-Type": "application/json", "X-Admin-Key": k }, body: JSON.stringify(body) });
+        if (!r.ok) toast("Fallo al enviar comando: " + (await r.text()).slice(0, 80), false);
+        else { toast(min > 0 ? `💧 Solicitud de riego (${body.duration_min} min) encolada` : "⏹ Orden de parada enviada"); refresh(); feed(); }
+      } catch (err) {
+        toast("No se pudo contactar el actuador: " + err.message, false);
+      }
+    }
+
+    async function rmSens(d, s) {
+      if (confirm(`¿Dar de baja lógica al sensor '${s}' del nodo '${d}'?`)) {
+        await api(`/api/v2/devices/${d}/sensors/${s}`, { method: "DELETE" });
+        toast("Sensor dado de baja"); refresh();
+      }
+    }
+    async function rmDev(d) {
+      if (confirm(`¿Desvincular nodo de campo '${d}'?`)) {
+        await api(`/api/v2/devices/${d}`, { method: "DELETE" });
+        toast("Dispositivo desvinculado"); refresh();
+      }
+    }
+
+    const TRIGGER_ICONS = { rule: "cpu", manual: "user-check", offline: "wifi-off", schedule: "clock" };
+
+    async function feed() {
+      try {
+        const evs = await api("/api/v2/irrigation-events?limit=8");
+        document.getElementById("feed").innerHTML = (evs || []).map(e => {
+          const done = e.duration_min != null;
+          const icon = TRIGGER_ICONS[e.trigger] || "activity";
+          return `
+            <div class="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs gap-3 hover:border-slate-700 transition">
+              <div class="flex items-center gap-2.5">
+                <div class="w-6 h-6 rounded-lg bg-slate-900 text-slate-400 border border-slate-800 flex items-center justify-center shrink-0"><i data-lucide="${icon}" class="w-3.5 h-3.5"></i></div>
+                <div>
+                  <div class="font-medium text-slate-200">${e.zone} · <span class="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${e.trigger}</span></div>
+                  <div class="text-[11px] text-slate-400 mt-0.5">${done ? `Riego completado: ${e.duration_min.toFixed(0)} min (${e.liters ? e.liters + " L" : ""})` : `<span class="text-emerald-400 font-medium animate-pulse">Riego en curso ⏳</span>`}</div>
+                </div>
+              </div>
+              <span class="text-[10px] font-mono text-slate-400 shrink-0">${ago(e.started_at)}</span>
+            </div>`;
+        }).join("") || `<div class="text-xs text-slate-500 py-3 text-center">Sin actividad reciente</div>`;
+        if (window.lucide) lucide.createIcons();
+      } catch (e) {
+        document.getElementById("feed").innerHTML = `<div class="text-xs text-slate-500 py-3 text-center">No se pudo cargar la bitácora</div>`;
+      }
+    }
+
+    function closeChartModal() {
+      document.getElementById("overlay").style.display = "none";
+    }
+    document.getElementById("overlay").addEventListener("click", function (e) { if (e.target === this) closeChartModal(); });
+
+    function mkChart(id, labels, data, label, color) {
+      const cv = document.getElementById(id);
+      if (!cv) return;
+      const old = Chart.getChart(cv); if (old) old.destroy();
+      return new Chart(cv, { type: "line",
+        data: { labels, datasets: [{ label, data, borderColor: color, borderWidth: 2,
+          backgroundColor: color + "18", pointRadius: data.length > 30 ? 0 : 3,
+          pointHoverRadius: 5, tension: 0.3, fill: true }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false },
+            tooltip: { backgroundColor: "#0f172a", titleColor: "#94a3b8", bodyColor: "#f8fafc",
+                       borderColor: "#334155", borderWidth: 1, padding: 10, boxPadding: 4 } },
+          scales: { x: { grid: { color: "#1e293b" }, ticks: { color: "#64748b", maxTicksLimit: 8, font: { size: 10 } } },
+                    y: { grid: { color: "#1e293b" }, ticks: { color: "#64748b", font: { size: 10 } } } } } });
+    }
+
+    async function openChart(dev, sid, type, unit, rango) {
+      const ov = document.getElementById("overlay");
+      ov.style.display = "flex";
+      const meta = SENSOR_META[type] || { name: type };
+      document.getElementById("charttitle").textContent = `${meta.name} · ${dev} / ${sid} (${unit || ""})`;
+      const activeRange = rango || "7d";
+      document.getElementById("rangos").innerHTML = ["24h", "7d", "1a"].map(r => `
+        <button onclick="openChart('${dev}','${sid}','${type}','${unit}','${r}')"
+                class="px-2.5 py-1 rounded-lg transition ${r === activeRange ? 'bg-emerald-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-white'}">${r}</button>`).join("");
+      const horas = { "24h": 24, "7d": 168, "1a": 8760 }[activeRange] || 168;
+      try {
+        const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=${horas}`);
+        const labels = agg.map(x => new Date(x.ts).toLocaleString("es", { day: "2-digit", month: "2-digit", hour: "2-digit" }));
+        mkChart("ch1", labels, agg.map(x => x.avg), "Promedio horario", "#38bdf8");
+        mkChart("ch2", labels, agg.map(x => x.min), "Mínimo registrado", "#f87171");
+      } catch (e) { toast("Sin datos agregados para este rango", false); }
+      try {
+        const raw = await api(`/api/v2/history?device_id=${dev}&sensor_id=${sid}&limit=50`);
+        const lb2 = raw.map(x => new Date(x.ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })).reverse();
+        mkChart("ch3", lb2, raw.map(x => x.value).reverse(), "Muestras directas", "#10b981");
+      } catch (e) {}
+      if (window.lucide) lucide.createIcons();
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      refresh(); sparklines(); feed();
+      setInterval(refresh, 5000);
+      setInterval(sparklines, 60000);
+      setInterval(feed, 15000);
+      if (window.lucide) lucide.createIcons();
+    });
+  </script>
+</body>
+</html>"""
 
 
 @app.get("/")

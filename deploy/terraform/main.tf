@@ -1,29 +1,56 @@
 # Terraform — AgroSense en AWS (fase 4)
-# Estado: aplicar con credenciales del usuario (aws configure / SSO).
-# Orden: main.tf -> rds.tf -> secrets.tf -> ecs.tf -> sns.tf -> eventbridge.tf
+# Probado con AWS Academy (LabRole pre-existente, sin NAT para ahorrar).
+# En produccion propio: NAT gateway + roles dedicados + backend s3.
 
 terraform {
   required_version = ">= 1.5"
   required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
   }
-  # backend "s3" { bucket = "agrosense-tfstate" key = "prod.tfstate" region = var.region }
 }
 
 provider "aws" {
   region = var.region
 }
 
-variable "region"    { type = string  default = "us-west-2" }
-variable "project"   { type = string  default = "agrosense" }
-variable "db_user"   { type = string  default = "iot" }
-variable "db_name"   { type = string  default = "iot" }
-variable "api_port"  { type = number  default = 8000 }
+variable "region" {
+  type    = string
+  default = "us-east-1"
+}
+variable "project" {
+  type    = string
+  default = "agrosense"
+}
+variable "db_user" {
+  type    = string
+  default = "iot"
+}
+variable "db_name" {
+  type    = string
+  default = "iot"
+}
+variable "api_port" {
+  type    = number
+  default = 8000
+}
+variable "deploy_s3" {
+  type    = bool
+  default = false
+  description = "Lab: off (SCP deniega S3). Prod: true para backup raw"
+}
 
-data "aws_availability_zones" "available" { state = "available" }
+data "aws_availability_zones" "available" {
+  state = "available"
+}
 data "aws_caller_identity" "current" {}
+data "aws_iam_role" "lab" {
+  name = "LabRole"
+}
 
-# ---------------- Red: 2 subnets publicas (ALB) + 2 privadas (RDS/ECS) ----------------
+# ---------------- Red: 2 publicas (ALB+Fargate) + 2 privadas (RDS) ----------------
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -31,7 +58,9 @@ resource "aws_vpc" "main" {
   tags = { Name = "${var.project}-vpc" }
 }
 
-resource "aws_internet_gateway" "gw" { vpc_id = aws_vpc.main.id }
+resource "aws_internet_gateway" "gw" {
+  vpc_id = aws_vpc.main.id
+}
 
 resource "aws_subnet" "public" {
   count                   = 2
@@ -57,48 +86,37 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.gw.id
   }
 }
+
 resource "aws_route_table_association" "public" {
   count          = 2
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-# NAT para que las tareas Fargate salgan a internet (pull ECR, NTP)
-resource "aws_eip" "nat"  { domain = "vpc" }
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-  depends_on    = [aws_internet_gateway.gw]
-}
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-}
-resource "aws_route_table_association" "private" {
-  count          = 2
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
-}
+# NOTA de costos: en el lab, Fargate usa subnets publicas (sin NAT ~$40/mes).
+# En produccion real: tareas en privadas + NAT gateway.
 
 # ---------------- Security groups ----------------
 resource "aws_security_group" "alb" {
   vpc_id = aws_vpc.main.id
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = { Name = "${var.project}-alb" }
 }
 
@@ -110,7 +128,12 @@ resource "aws_security_group" "api" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = { Name = "${var.project}-api" }
 }
 
@@ -120,7 +143,7 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.api.id] # solo desde ECS
+    security_groups = [aws_security_group.api.id]
   }
   tags = { Name = "${var.project}-rds" }
 }
