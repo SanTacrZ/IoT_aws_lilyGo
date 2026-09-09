@@ -186,3 +186,8 @@ def latest():
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=8000)
+else:  # gunicorn: inicializar esquema al arrancar el worker
+    try:
+        init_db()
+    except Exception as e:
+        log.warning("init_db diferido: %s", e)
