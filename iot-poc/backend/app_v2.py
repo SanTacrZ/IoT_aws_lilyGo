@@ -1310,7 +1310,7 @@ DASHBOARD_HTML = """<!doctype html>
         else noZone.push(d);
       });
       let html = "";
-      for (const zid in zones) html += zoneHtml(zones[zid], byZone[zid] || []);
+      for (const zid in zones) { const devs = byZone[zid] || []; if (devs.length) html += zoneHtml(zones[zid], devs); }
       if (noZone.length) html += zoneHtml(null, noZone);
       document.getElementById("root").innerHTML = html || `
         <div class="p-8 text-center bg-slate-900/60 border border-slate-800 rounded-2xl">
