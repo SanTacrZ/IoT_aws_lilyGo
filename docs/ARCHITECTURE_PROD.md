@@ -22,6 +22,7 @@ CAPA 2 — CONECTIVIDAD
   Medio plazo: MQTT/TLS con X.509 hacia AWS IoT Core (porThings/certificados,
   shadow para estado offline, reglas IoT Rules). WiFi solo si hay cobertura;
   alternativas: LoRaWAN (Helium/TTN) + gateway para parcelas remotas.
+  -> Diseno completo de LoRaWAN en docs/LORAWAN.md (T-Beam trae LoRa de fabrica).
 
 CAPA 3 — NUBE AWS
   Ingesta:   IoT Core (MQTT)  o  ALB → ECS Fargate (API Flask, actual)
@@ -78,8 +79,9 @@ Ver `docs/DATA_MODEL.md` y `db/migrations/002_precision.sql`. Resumen:
 | 1. POC | HTTPS+HMAC, dashboard, CRUD | ✅ (main) |
 | 2. Autonomía | Registro auto, dashboard multi-equipo v2 | ✅ (rama actual) |
 | 3. Precisión | Zonas/cultivos, motor de riego, comandos, alertas | 🔨 (esta rama) |
-| 4. Nube AWS | RDS+TimescaleDB, ECS Fargate, S3, SNS, CI/CD | ⏳ docs/AWS_DEPLOYMENT.md |
+| 4. Nube AWS | IaC completa en `deploy/terraform/` (VPC, RDS+Timescale, ECS Fargate, ALB, Secrets, SNS, EventBridge+Lambda rule engine). Pendiente: aplicar con credenciales + imagen en ECR | 📦 lista para aplicar |
 | 5. MQTT+X.509 | Ingesta MQTT local lista (Mosquitto + mqtt_ingest.py + firmware lilygo_mqtt.ino, esquema y topics idénticos a IoT Core). Falta: X.509 + shadows en AWS | 🔄 en progreso |
+| 5b. LoRaWAN | Diseno + firmware OTAA + decoder TTN (docs/LORAWAN.md). Pendiente: hardware real en campo | 📦 diseñada |
 | 6. Inteligencia | ET0 (Penman-Monteith) con datos OpenWeather, TinyML anomalías | ⏳ |
 
 ## 6. Costos estimados (comunidad pequeña, fase 4)
