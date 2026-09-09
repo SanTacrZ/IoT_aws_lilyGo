@@ -1113,6 +1113,11 @@ async function openChart(dev, sid, type, unit, rango){
     mkChart("ch3", lb2, raw.map(x => x.value).reverse(), "últimos puntos crudos", "#4ade80");
   } catch(e) {}
 }
+// ---- arranque ----
+refresh(); sparklines(); feed();
+setInterval(refresh, 5000);
+setInterval(sparklines, 60000);
+setInterval(feed, 15000);
 </script>
 <div id="overlay" onclick="if(event.target===this)this.style.display='none'">
   <div id="chartbox"><h3 id="charttitle"></h3> <small><span id="rangos"></span>
