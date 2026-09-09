@@ -21,7 +21,7 @@ services:
     build:
       context: ../..
       dockerfile: iot-poc/backend/Dockerfile.dev
-    command: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "app_v2:app"]
+    command: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "4", "app_v2:app"]
     env_file: .env.dev
     environment:
       DB_HOST: db

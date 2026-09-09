@@ -616,20 +616,26 @@ def ingest():
 def state():
     if not check_key():
         return jsonify(error="api-key invalida"), 401
-    out = []
+    # 2 queries totales (devices + sensors en lote) en vez de N+1
     with db().cursor() as cur:
         cur.execute("SELECT device_id, name, fw, enabled, last_seen FROM devices_v2 ORDER BY device_id")
         devs = cur.fetchall()
-        for device_id, name, fw, enabled, last_seen in devs:
-            cur.execute("SELECT sensor_id, type, unit, enabled, last_value, last_seen FROM sensors_v2 "
-                        "WHERE device_id=%s ORDER BY sensor_id", (device_id,))
-            sens = [{"sensor_id": r[0], "type": r[1], "unit": r[2], "enabled": r[3],
-                     "last_value": r[4], "last_seen": r[5].isoformat() if r[5] else None}
-                    for r in cur.fetchall()]
-            out.append({"device_id": device_id, "name": name, "fw": fw, "enabled": enabled,
-                        "last_seen": last_seen.isoformat() if last_seen else None,
-                        "status": status_of(last_seen) if enabled else "disabled",
-                        "sensors": [s for s in sens if s["enabled"]]})
+        ids = [d[0] for d in devs]
+        sens_by_dev: dict[str, list] = {}
+        if ids:
+            cur.execute("""SELECT device_id, sensor_id, type, unit, enabled, last_value, last_seen
+                           FROM sensors_v2 WHERE device_id = ANY(%s) ORDER BY device_id, sensor_id""",
+                        (ids,))
+            for r in cur.fetchall():
+                sens_by_dev.setdefault(r[0], []).append(
+                    {"sensor_id": r[1], "type": r[2], "unit": r[3], "enabled": r[4],
+                     "last_value": r[5], "last_seen": r[6].isoformat() if r[6] else None})
+    out = []
+    for device_id, name, fw, enabled, last_seen in devs:
+        out.append({"device_id": device_id, "name": name, "fw": fw, "enabled": enabled,
+                    "last_seen": last_seen.isoformat() if last_seen else None,
+                    "status": status_of(last_seen) if enabled else "disabled",
+                    "sensors": [s for s in sens_by_dev.get(device_id, []) if s["enabled"]]})
     return jsonify(devices=out)
 
 @app.get("/api/v2/history")
