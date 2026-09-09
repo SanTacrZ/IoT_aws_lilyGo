@@ -865,9 +865,6 @@ async function refresh() {
   if(sessionStorage.ADM) loadAlerts();
 }
 refresh(); setInterval(refresh, 5000);
-</script>
-<button onclick="loadAlerts()" style="margin:.5rem 0">🔔 Alertas abiertas</button>
-<div id="alerts"></div>
 async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); refresh(); } }
 async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); refresh(); } }
 function ensureAdm(){ return sessionStorage.ADM || (sessionStorage.ADM = prompt("X-Admin-Key (gobernar riegos/alertas):") || ""); }
@@ -923,6 +920,8 @@ async function openChart(dev, sid, type, unit, rango){
   } catch(e) {}
 }
 </script>
+<button onclick="loadAlerts()" style="margin:.5rem 0">🔔 Alertas abiertas</button>
+<div id="alerts"></div>
 <div id="overlay" onclick="if(event.target===this)this.style.display='none'">
   <div id="chartbox"><h3 id="charttitle"></h3> <small><span id="rangos"></span>
     <button onclick="document.getElementById('overlay').style.display='none'">Cerrar</button></small>
