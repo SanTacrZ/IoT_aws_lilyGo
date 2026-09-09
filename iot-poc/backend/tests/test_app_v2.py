@@ -177,3 +177,15 @@ def test_alertas_endpoints(client):
     r = client.get("/api/v2/alerts", headers=admin_h())
     assert r.status_code == 200 and isinstance(r.get_json(), list)
     assert client.post("/api/v2/alerts/999999/ack", headers=admin_h()).status_code == 404
+
+# ---------------- stats + lecturas de solo consulta con device-key ----------------
+
+def test_stats_y_lecturas(client):
+    s = client.get("/api/v2/stats", headers=dev_h())
+    j = s.get_json()
+    assert s.status_code == 200 and set(j) == {"devices_online", "devices_total",
+                                               "irrigations_today", "liters_today", "alerts_open"}
+    assert j["devices_total"] >= j["devices_online"] >= 0
+    assert client.get("/api/v2/zones", headers=dev_h()).status_code == 200      # solo lectura ok
+    assert client.get("/api/v2/irrigation-events", headers=dev_h()).status_code == 200
+    assert client.post("/api/v2/zones", data="{}", headers=dev_h()).status_code == 401  # escritura NO

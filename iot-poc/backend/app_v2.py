@@ -202,8 +202,8 @@ def farms_delete(fid):
 
 @app.get("/api/v2/zones")
 def zones_list():
-    g = admin_required()
-    if g: return g
+    if not (admin_required() is None or check_key()):
+        return jsonify(error="auth invalida"), 401
     limit, off = page_args()
     q, args = "", []
     if request.args.get("farm_id"):
@@ -457,8 +457,8 @@ def rules_delete(rid):
 
 @app.get("/api/v2/alerts")
 def alerts_list():
-    g = admin_required()
-    if g: return g
+    if not (admin_required() is None or check_key()):
+        return jsonify(error="auth invalida"), 401
     limit, off = page_args()
     q, args = "WHERE acked_at IS NULL", []
     if request.args.get("open") == "0":
@@ -510,8 +510,8 @@ def zone_irrigate(zid):
 
 @app.get("/api/v2/irrigation-events")
 def irrigation_events_list():
-    g = admin_required()
-    if g: return g
+    if not (admin_required() is None or check_key()):
+        return jsonify(error="auth invalida"), 401
     limit, off = page_args()
     q, args = "", []
     if request.args.get("zone_id"):
@@ -623,13 +623,24 @@ def state():
         ids = [d[0] for d in devs]
         sens_by_dev: dict[str, list] = {}
         if ids:
+            cur.execute("""SELECT device_id, sensor_id, value, rn FROM (
+                           SELECT device_id, sensor_id, value,
+                                  row_number() OVER (PARTITION BY device_id, sensor_id
+                                                     ORDER BY ts DESC) AS rn
+                           FROM measurements_v2) t WHERE rn <= 2
+                           ORDER BY device_id, sensor_id, rn""")
+            prev_by_dev: dict[tuple, float] = {}
+            for r in cur.fetchall():
+                if r[3] == 2:  # rn=2 = penultima lectura = tendencia
+                    prev_by_dev[(r[0], r[1])] = float(r[2])
             cur.execute("""SELECT device_id, sensor_id, type, unit, enabled, last_value, last_seen
                            FROM sensors_v2 WHERE device_id = ANY(%s) ORDER BY device_id, sensor_id""",
                         (ids,))
             for r in cur.fetchall():
                 sens_by_dev.setdefault(r[0], []).append(
                     {"sensor_id": r[1], "type": r[2], "unit": r[3], "enabled": r[4],
-                     "last_value": r[5], "last_seen": r[6].isoformat() if r[6] else None})
+                     "last_value": r[5], "last_seen": r[6].isoformat() if r[6] else None,
+                     "prev": prev_by_dev.get((r[0], r[1]))})
     out = []
     for device_id, name, fw, enabled, last_seen, zone_id in devs:
         out.append({"device_id": device_id, "name": name, "fw": fw, "enabled": enabled,
@@ -638,6 +649,23 @@ def state():
                     "status": status_of(last_seen) if enabled else "disabled",
                     "sensors": [s for s in sens_by_dev.get(device_id, []) if s["enabled"]]})
     return jsonify(devices=out)
+
+@app.get("/api/v2/stats")
+def stats():
+    """Resumen global para el header del dashboard (1 endpoint, 3 queries)."""
+    if not (admin_required() is None or check_key()):
+        return jsonify(error="auth invalida"), 401
+    with db().cursor() as cur:
+        cur.execute("SELECT count(*) FILTER (WHERE enabled AND last_seen > now() - make_interval(secs => %s)),"
+                    " count(*) FILTER (WHERE enabled) FROM devices_v2", (ONLINE_AFTER_S,))
+        online, total = cur.fetchone()
+        cur.execute("SELECT count(*), COALESCE(sum(liters),0) FROM irrigation_events "
+                    "WHERE started_at > date_trunc('day', now())")
+        irrig_today, liters_today = cur.fetchone()
+        cur.execute("SELECT count(*) FROM alerts WHERE acked_at IS NULL")
+        alerts_open = cur.fetchone()[0]
+    return jsonify(devices_online=online, devices_total=total, irrigations_today=irrig_today,
+                   liters_today=round(float(liters_today), 1), alerts_open=alerts_open)
 
 @app.get("/api/v2/history")
 def history():
@@ -819,76 +847,242 @@ def history_agg():
     except psycopg2.errors.UndefinedTable:
         return jsonify(error="readings_hourly no existe (correr seed)"), 503
 
-@app.get("/dashboard-v2")
-def dashboard_v2():
-    return """<!doctype html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>IoT - Dashboard v2</title>
-<style>body{font-family:system-ui,sans-serif;max-width:1200px;margin:2rem auto;padding:0 1rem;background:#0f172a;color:#e2e8f0}
-.dev{background:#1e293b;border-radius:.75rem;padding:1rem;margin:1rem 0}.cards{display:flex;gap:.6rem;flex-wrap:wrap}
-.card{flex:1;min-width:140px;background:#334155;border-radius:.6rem;padding:.8rem;text-align:center}
-.card span{font-size:.75rem;color:#94a3b8}.card b{font-size:1.4rem;display:block}
-.online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}.disabled{color:#94a3b8}
+DASHBOARD_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>AgroSense - Dashboard</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:1200px;margin:0 auto;padding:1rem;background:#0f172a;color:#e2e8f0}
+h1{font-size:1.4rem;margin:.2rem 0}small{color:#94a3b8}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin:1rem 0}
+.stat{background:#1e293b;border-radius:.7rem;padding:.7rem 1rem;text-align:center;cursor:pointer;transition:transform .15s}
+.stat:hover{transform:translateY(-2px)}
+.stat b{font-size:1.6rem;display:block}.stat span{font-size:.72rem;color:#94a3b8}
+.stat.alarm b{color:#f87171}
+.zone{background:#1e293b;border-radius:.8rem;padding:1rem;margin:1rem 0}
+.zone h3{margin:0 0 .2rem}.zonehead{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.chip{background:#334155;border-radius:999px;padding:.15rem .7rem;font-size:.72rem;color:#cbd5e1}
+.badge{font-size:.8rem;font-weight:600}.online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}.disabled{color:#94a3b8}
+.cards{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.7rem}
+.card{flex:1;min-width:135px;background:#334155;border-radius:.6rem;padding:.7rem;text-align:center;cursor:pointer;position:relative;transition:transform .15s}
+.card:hover{transform:translateY(-2px)}
+.card .lbl{font-size:.72rem;color:#94a3b8}
+.card .val{font-size:1.35rem;font-weight:700;margin:.15rem 0}
+.card .meta{font-size:.68rem;color:#94a3b8}
+.card .spark{margin-top:.3rem;height:34px}
+.card.warn{outline:2px solid #facc15}
+.card.crit{outline:2px solid #f87171}
+.up{color:#4ade80}.down{color:#f87171}.flat{color:#94a3b8}
 button{background:#475569;color:#fff;border:0;border-radius:.4rem;padding:.3rem .6rem;cursor:pointer;font-size:.75rem}
-small{color:#94a3b8}
+button.primary{background:#16a34a}
+button.stop{background:#dc2626}
+.feed{display:flex;flex-direction:column;gap:.35rem}
+.ev{display:flex;gap:.6rem;align-items:center;background:#1e293b;border-radius:.5rem;padding:.45rem .7rem;font-size:.82rem}
+.ev .t{margin-left:auto;font-size:.7rem;color:#94a3b8}
+.pill{border-radius:999px;padding:.1rem .55rem;font-size:.7rem}
+.pill.rule{background:#164e63;color:#67e8f9}.pill.manual{background:#3b0764;color:#d8b4fe}
+.pill.offline{background:#450a0a;color:#fca5a5}.pill.system{background:#1e3a8a;color:#93c5fd}
 .alert{background:#1e293b;border-radius:.5rem;padding:.5rem .8rem;margin:.3rem 0;font-size:.85rem}
 .alert.warn{border-left:4px solid #facc15}.alert.critical{border-left:4px solid #f87171}
 .alert.info{border-left:4px solid #38bdf8}
+#toasts{position:fixed;bottom:1rem;right:1rem;display:flex;flex-direction:column;gap:.4rem;z-index:99}
+.toast{background:#16a34a;color:#fff;padding:.6rem 1rem;border-radius:.5rem;font-size:.85rem;animation:fadein .2s}
+.toast.err{background:#dc2626}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
 #overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
 #chartbox{background:#1e293b;border-radius:.75rem;padding:1rem;width:min(720px,95vw)}
-canvas{max-height:260px}</style>
+canvas.chartbig{max-height:260px}
+.legend{display:flex;gap:1rem;font-size:.7rem;color:#94a3b8;margin:.3rem 0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.3rem}
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head><body>
-<h1>🌱 IoT Autónomo v2 <small>(poll 5s · API-Key en prompt)</small></h1>
-<p><small>Quitar sensor/equipo = baja lógica. Si vuelve a enviar datos, se re-habilita solo.</small></p>
+<h1>🌱 AgroSense <small>— agricultura de precisión · auto-refresh 5s</small></h1>
+<div class="legend">
+  <span><i class="dot" style="background:#f87171"></i>seco</span>
+  <span><i class="dot" style="background:#4ade80"></i>óptimo</span>
+  <span><i class="dot" style="background:#38bdf8"></i>saturado</span>
+  <span><i class="dot" style="background:#facc15"></i>revisar</span>
+</div>
+<div id="stats" class="cards">Cargando…</div>
+<h3>🔔 Alertas abiertas</h3>
+<div id="alerts"><small>Sin alertas abiertas</small></div>
+<h3>🗺️ Zonas y equipos</h3>
 <div id="root">Cargando…</div>
+<h3>📜 Actividad reciente</h3>
+<div id="feed" class="feed">Cargando…</div>
+<div id="toasts"></div>
+
 <script>
 const KEY = sessionStorage.KEY || (sessionStorage.KEY = prompt("API-Key del dashboard:") || "");
 async function api(p, o={}) {
   const r = await fetch(p, {...o, headers: {...(o.headers||{}), "X-Api-Key": KEY}});
-  if (!r.ok) throw new Error(r.status + " " + await r.text());
+  if (!r.ok) throw new Error(r.status + " " + (await r.text()).slice(0,120));
   return r.json();
 }
-async function refresh() {
-  try {
-    const {devices} = await api("/api/v2/state");
-    document.getElementById("root").innerHTML = devices.length ? devices.map(d => `
-      <div class="dev"><h3>${d.name || d.device_id} <span class="${d.status}">● ${d.status}</span>
-      <small>${d.device_id} · ${d.fw||""} · ${d.last_seen||"sin datos"}</small></h3>
-      <button onclick="rmDev('${d.device_id}')">Quitar equipo</button>
-      ${d.zone_id ? `<button onclick="irrigate(${d.zone_id},10)">💧 Riego 10</button><button onclick="irrigate(${d.zone_id},0)">⏹ Stop</button>` : ""}
-      <div class="cards">${d.sensors.map(s => `
-        <div class="card"><span>${s.type||s.sensor_id} (${s.unit||""})<br>${s.sensor_id}</span>
-        <b>${s.last_value ?? "--"}</b><br>
-        <button onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')">📈</button>
-        <button onclick="rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>`).join("") || "<small>Sin sensores habilitados</small>"}</div></div>`).join("")
-      : "Sin equipos todavía — enciende una placa.";
-  } catch(e) { document.getElementById("root").innerHTML = "Error: " + e.message; }
-  if(sessionStorage.ADM) loadAlerts();
+function toast(msg, ok=true){
+  const t = document.createElement("div");
+  t.className = "toast" + (ok ? "" : " err"); t.textContent = msg;
+  document.getElementById("toasts").appendChild(t);
+  setTimeout(()=>t.remove(), 4000);
 }
-refresh(); setInterval(refresh, 5000);
-async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); refresh(); } }
-async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); refresh(); } }
+function ago(iso){
+  if(!iso) return "sin datos";
+  const s = Math.round((Date.now() - new Date(iso).getTime())/1000);
+  if (s < 90) return "hace " + s + "s";
+  return "hace " + Math.round(s/60) + "min";
+}
+const ICON = {soil:"🌱", temperature:"🌡", humidity:"💧", battery:"🔋", solar:"☀️", rain:"🌧", flow:"🚰", ph:"⚗️", ec:"⚡"};
+const NAME = {soil:"Humedad de suelo", temperature:"Temperatura", humidity:"Humedad aire",
+              battery:"Batería", solar:"Radiación solar", rain:"Lluvia", flow:"Caudal", ph:"pH", ec:"EC"};
+
+let zones = {}, stateData = [];
+
+async function refresh(){
+  try{
+    const [st, zs, stats] = await Promise.all([
+      api("/api/v2/state"), api("/api/v2/zones?limit=200").catch(()=>({})), api("/api/v2/stats").catch(()=>null)
+    ]);
+    zones = {};
+    (zs.zones || zs || []).forEach(z => zones[z.zone_id] = z);
+    stateData = st.devices;
+    renderStats(stats);
+    renderRoot();
+    if(sessionStorage.ADM) loadAlerts();
+  }catch(e){ document.getElementById("root").innerHTML = "Error: " + e.message; }
+}
+function renderStats(s){
+  if(!s) return;
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><b><span class="online">${s.devices_online}</span>/${s.devices_total}</b><span>equipos en línea</span></div>
+    <div class="stat"><b>${s.irrigations_today}</b><span>riegos hoy</span></div>
+    <div class="stat"><b>${s.liters_today}L</b><span>agua usada hoy</span></div>
+    <div class="stat ${s.alerts_open ? "alarm" : ""}" onclick="loadAlerts()"><b>${s.alerts_open}</b><span>alertas abiertas</span></div>`;
+}
+function soilState(s, zone){
+  if (!zone || s.type !== "soil") return null;
+  const v = s.last_value;
+  if (v == null) return null;
+  if (v < zone.soil_min_pct) return {cls:"crit", tag:"SECAS"};
+  if (v > zone.soil_max_pct) return {cls:"warn", tag:"SATURADO"};
+  return {cls:"ok", tag:"OPTIMO"};
+}
+function trend(s){
+  if (s.prev == null || s.last_value == null) return "";
+  const d = +(s.last_value - s.prev).toFixed(1);
+  if (Math.abs(d) < 0.05) return `<span class="flat">• estable</span>`;
+  return d > 0 ? `<span class="up">▲ +${d}</span>` : `<span class="down">▼ ${d}</span>`;
+}
+function renderRoot(){
+  const byZone = {};
+  const noZone = [];
+  stateData.forEach(d => {
+    if (d.zone_id && zones[d.zone_id]) { (byZone[d.zone_id] ||= []).push(d); }
+    else noZone.push(d);
+  });
+  let html = "";
+  for (const zid in zones){
+    const z = zones[zid], devs = byZone[zid] || [];
+    if (!devs.length && !z.enabled) continue;
+    html += zoneHtml(z, devs);
+  }
+  if (noZone.length) html += zoneHtml(null, noZone);
+  document.getElementById("root").innerHTML = html || "Sin equipos todavía — enciende una placa.";
+}
+function zoneHtml(z, devs){
+  const head = z
+    ? `<span class="chip">${z.crop||"cultivo"} · riega si &lt;${z.soil_min_pct}% · para si &gt;${z.soil_max_pct}%</span>
+       <button class="primary" onclick="irrigate(${z.zone_id},10)">💧 Riego 10</button>
+       <button class="stop" onclick="irrigate(${z.zone_id},0)">⏹ Stop</button>`
+    : `<span class="chip">sin zona asignada</span>`;
+  return `<div class="zone"><div class="zonehead"><h3>${z ? z.name : " Equipos sin zona"}</h3>${head}</div>
+    <div class="cards">${devs.map(devHtml).join("")}</div></div>`;
+}
+function devHtml(d){
+  const stc = {online:"online", stale:"stale", offline:"offline", disabled:"disabled"}[d.status];
+  return `<div class="zone" style="background:#0f172a;border:1px solid #334155">
+    <div class="zonehead"><b>${d.name || d.device_id}</b>
+      <span class="badge ${d.status}">● ${d.status}</span>
+      <small>${d.device_id} · ${ago(d.last_seen)}</small>
+      <button onclick="rmDev('${d.device_id}')">Quitar</button></div>
+    <div class="cards">${d.sensors.map(s => sensorHtml(d, s)).join("")}</div>
+  </div>`;
+}
+function sensorHtml(d, s){
+  const zone = zones[d.zone_id];
+  const soil = soilState(s, zone);
+  const cls = soil ? ` ${soil.cls}` : "";
+  return `<div class="card${cls}" onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type||s.sensor_id}','${s.unit||""}')"
+           data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-type="${s.type||s.sensor_id}">
+    <div class="lbl">${ICON[s.type]||"·"} ${NAME[s.type]||s.type||s.sensor_id}${soil ? ` · <b>${soil.tag}</b>` : ""}</div>
+    <div class="val">${s.last_value ?? "--"}<small>${s.unit||""}</small></div>
+    <div class="meta">${trend(s)} · ${ago(s.last_seen)}</div>
+    <div class="spark"><canvas id="sp-${d.device_id}-${s.sensor_id}"></canvas></div>
+    <div class="meta"><button onclick="event.stopPropagation();rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>
+  </div>`;
+}
+// ---- sparklines 24h (baratos: agg horaria, cada 60s) ----
+async function sparklines(){
+  const cards = document.querySelectorAll(".card[data-dev]");
+  for (const c of cards){
+    const dev = c.dataset.dev, sid = c.dataset.sid;
+    try{
+      const agg = await api(`/api/v2/history-agg?device_id=${dev}&sensor_id=${sid}&bucket=1h&hours=24`);
+      const cv = document.getElementById(`sp-${dev}-${sid}`);
+      if (!cv || !agg.length) continue;
+      const old = Chart.getChart(cv); if(old) old.destroy();
+      new Chart(cv, {type:"line", data:{labels:agg.map(()=>""), datasets:[{
+        data: agg.map(x=>x.avg), borderColor:"#38bdf8", borderWidth:1.5, pointRadius:0, tension:.4, fill:true,
+        backgroundColor:"#38bdf822"}]},
+        options:{responsive:true, animation:false, plugins:{legend:{display:false}},
+                 scales:{x:{display:false}, y:{display:false}}}});
+    }catch(e){}
+  }
+}
+// ---- alertas ----
 function ensureAdm(){ return sessionStorage.ADM || (sessionStorage.ADM = prompt("X-Admin-Key (gobernar riegos/alertas):") || ""); }
-async function irrigate(zid, min){
-  const k = ensureAdm(); if(!k) return;
-  const r = await fetch(`/api/v2/zones/${zid}/irrigate`, {method:"POST",
-    headers:{"Content-Type":"application/json","X-Admin-Key":k},
-    body: JSON.stringify(min > 0 ? {duration_min:min} : {stop:true})});
-  if(!r.ok){ alert("fallo: " + await r.text()); } else { refresh(); }
-}
 async function loadAlerts(){
   const k = ensureAdm(); if(!k) return;
   try{
-    const r = await fetch("/api/v2/alerts", {headers:{"X-Admin-Key":k}});
-    const list = r.ok ? await r.json() : [];
-    document.getElementById("alerts").innerHTML = list.map(a =>
-      `<div class="alert ${a.severity}">[${a.kind}] ${a.message}
-       <button onclick="ack(${a.alert_id})">Ack</button></div>`).join("") || "Sin alertas abiertas";
+    const r = await fetch("/api/v2/alerts", {headers:{"X-Api-Key":KEY}});
+    const list = await r.json();
+    const box = document.getElementById("alerts");
+    if (!list.length) { box.innerHTML = "<small>Todo en orden — sin alertas abiertas</small>"; return; }
+    box.innerHTML = list.map(a =>
+      `<div class="alert ${a.severity}"><b>${a.kind}</b> · ${a.message}
+       ${sessionStorage.ADM ? `<button onclick="ack(${a.alert_id})">Ack</button>` : ""}</div>`).join("");
   }catch(e){ document.getElementById("alerts").innerHTML = "alertas: " + e.message; }
 }
 async function ack(id){
-  await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":sessionStorage.ADM||""}});
+  const k = ensureAdm();
+  const r = await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":k}});
+  r.ok ? toast("Alerta reconocida") : toast("No se pudo ackear", false);
   loadAlerts();
 }
+// ---- acciones ----
+async function irrigate(zid, min){
+  const k = ensureAdm(); if(!k) return;
+  let body = min > 0 ? {duration_min:min} : {stop:true};
+  if (min > 0){ const m = prompt("Minutos de riego (max 120):", "10"); if(!m) return; body = {duration_min: Math.min(120, parseInt(m)||10)}; }
+  const r = await fetch(`/api/v2/zones/${zid}/irrigate`, {method:"POST",
+    headers:{"Content-Type":"application/json","X-Admin-Key":k}, body: JSON.stringify(body)});
+  if(!r.ok){ toast("Fallo: " + (await r.text()).slice(0,80), false); }
+  else { toast(min > 0 ? `💧 Riego ${body.duration_min} min encolado` : "⏹ Stop encolado"); refresh(); }
+}
+async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); toast("Sensor dado de baja (baja lógica)"); refresh(); } }
+async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); toast("Equipo dado de baja"); refresh(); } }
+// ---- feed de actividad ----
+const TRIG = {rule:"🤖", manual:"✋", offline:"📴", schedule:"⏰"};
+async function feed(){
+  try{
+    const evs = await api("/api/v2/irrigation-events?limit=6");
+    document.getElementById("feed").innerHTML = evs.map(e => {
+      const done = e.duration_min != null;
+      return `<div class="ev"><span>${TRIG[e.trigger]||"•"}</span>
+        <b>${e.zone}</b> <span class="pill ${e.trigger}">${e.trigger}</span>
+        <span>${done ? `riegó ${e.duration_min.toFixed(0)} min${e.liters ? " · " + e.liters + "L" : ""}` : "riego EN CURSO"}</span>
+        <span class="t">${ago(e.started_at)}</span></div>`;
+    }).join("") || "<small>Sin actividad aún</small>";
+  }catch(e){ document.getElementById("feed").innerHTML = "feed: " + e.message; }
+}
+// ---- charts grandes (modal) ----
 let charts = [];
 function mkChart(id, labels, data, label, color){
   const old = Chart.getChart(id); if(old) old.destroy();
@@ -901,7 +1095,7 @@ function mkChart(id, labels, data, label, color){
 async function openChart(dev, sid, type, unit, rango){
   const ov = document.getElementById("overlay");
   ov.style.display = "flex";
-  document.getElementById("charttitle").textContent = `${type} · ${dev}/${sid} (${unit||""})`;
+  document.getElementById("charttitle").textContent = `${NAME[type]||type} · ${dev}/${sid} (${unit||""})`;
   document.getElementById("rangos").innerHTML = ["24h","7d","1a"].map(r =>
     `<button onclick="openChart('${dev}','${sid}','${type}','${unit}','${r}')">${r}</button>`).join(" ");
   const horas = {"24h":24, "7d":168, "1a":8760}[rango || "7d"] || 168;
@@ -912,7 +1106,7 @@ async function openChart(dev, sid, type, unit, rango){
     if (agg.length && agg[0].min !== undefined) {
       mkChart("ch2", lb, agg.map(x => x.min), "mínimo", "#f87171");
     } else { Chart.getChart("ch2")?.destroy(); }
-  } catch(e) { alert("sin datos agregados: " + e.message); }
+  } catch(e) { toast("sin datos agregados", false); }
   try {
     const raw = await api(`/api/v2/history?device_id=${dev}&sensor_id=${sid}&limit=200`);
     const lb2 = raw.map(x => new Date(x.ts).toLocaleTimeString("es", {hour:"2-digit", minute:"2-digit"})).reverse();
@@ -920,15 +1114,22 @@ async function openChart(dev, sid, type, unit, rango){
   } catch(e) {}
 }
 </script>
-<button onclick="loadAlerts()" style="margin:.5rem 0">🔔 Alertas abiertas</button>
-<div id="alerts"></div>
 <div id="overlay" onclick="if(event.target===this)this.style.display='none'">
   <div id="chartbox"><h3 id="charttitle"></h3> <small><span id="rangos"></span>
     <button onclick="document.getElementById('overlay').style.display='none'">Cerrar</button></small>
-    <canvas id="ch1"></canvas><canvas id="ch2"></canvas><canvas id="ch3"></canvas>
+    <canvas id="ch1" class="chartbig"></canvas><canvas id="ch2" class="chartbig"></canvas><canvas id="ch3" class="chartbig"></canvas>
   </div>
 </div>
 </body></html>"""
+
+
+@app.get("/dashboard-v2")
+def dashboard_v2():
+    """Dashboard informativo: zonas, estados agronomicos, tendencia, feed y toasts."""
+    from flask import Response
+    return Response(DASHBOARD_HTML, mimetype="text/html")
+
+
 
 if __name__ == "__main__":
     init_db()
