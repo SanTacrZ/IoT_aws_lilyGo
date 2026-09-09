@@ -11,7 +11,7 @@ import sys
 import time
 import urllib.request
 
-URL = sys.argv[1] if len(sys.argv) > 1 else "http://44.251.195.44:8000/api/v1/readings"
+URL = sys.argv[1] if len(sys.argv) > 1 else "http://TU-IP:8000/api/v1/readings"
 API_KEY = os.getenv("DEVICE_API_KEY", "cambiar-api-key-larga")
 HMAC_SECRET = os.getenv("HMAC_SECRET", "cambiar-hmac-largo")
 
