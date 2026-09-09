@@ -229,13 +229,36 @@ def dashboard():
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
     last = rows[0] if rows else {}
-    cards = "".join(
-        f'<div class="card"><span>{label}</span><b>{_h.escape(str(last.get(k, "--")))}{unit}</b></div>'
-        for label, k, unit in [("🌡 Temperatura", "temperature_c", " °C"),
-                               ("💧 Humedad", "humidity_pct", " %"),
-                               ("🌱 Suelo", "soil_moisture_pct", " %"),
-                               ("☀️ Solar", "solar_w_m2", " W/m²"),
-                               ("🔋 Batería", "battery_v", " V")])
+    # Detector de caida: si la ultima muestra es mas vieja que el umbral, placa CAIDA.
+    stale_after = int(os.getenv("STALE_AFTER_S", "180"))  # placa envia 1/min -> 3 min sin datos = caida
+    down = True
+    age_s = None
+    try:
+        if last.get("ts"):
+            _ts = last["ts"]
+            if _ts.tzinfo is None:  # psycopg2 puede devolver naive -> asumir UTC
+                _ts = _ts.replace(tzinfo=timezone.utc)
+            age_s = (datetime.now(timezone.utc) - _ts).total_seconds()
+            down = age_s > stale_after
+    except Exception:
+        down = True
+    if down:
+        banner = ('<div class="down">🔴 LilyGo <b>CAÍDO</b> — sin datos hace '
+                  f'{_h.escape(str(int(age_s)) + "s" if age_s is not None else "nunca")} '
+                  f'(umbral {stale_after}s)</div>')
+        cards = "".join(
+            f'<div class="card off"><span>{label}</span><b>CAÍDO</b></div>'
+            for label in ("🌡 Temperatura", "💧 Humedad", "🌱 Suelo", "☀️ Solar", "🔋 Batería"))
+    else:
+        banner = (f'<div class="up">🟢 LilyGo <b>EN LÍNEA</b> — último dato hace '
+                  f'{int(age_s)}s</div>')
+        cards = "".join(
+            f'<div class="card"><span>{label}</span><b>{_h.escape(str(last.get(k, "--")))}{unit}</b></div>'
+            for label, k, unit in [("🌡 Temperatura", "temperature_c", " °C"),
+                                   ("💧 Humedad", "humidity_pct", " %"),
+                                   ("🌱 Suelo", "soil_moisture_pct", " %"),
+                                   ("☀️ Solar", "solar_w_m2", " W/m²"),
+                                   ("🔋 Batería", "battery_v", " V")])
     trs = "".join(
         "<tr><td>{ts}</td><td>{dev}</td><td>{t}</td><td>{h}</td><td>{s}</td><td>{sol}</td><td>{b}</td></tr>".format(
             **{k: _h.escape(str(r.get(k, ""))) for k in
@@ -253,8 +276,12 @@ def dashboard():
 .cards{{display:flex;gap:.8rem;flex-wrap:wrap;margin:1rem 0}}.card{{flex:1;min-width:150px;background:#1e293b;border-radius:.75rem;padding:1rem;text-align:center}}
 .card span{{font-size:.8rem;color:#94a3b8}}.card b{{font-size:1.6rem;display:block;margin-top:.3rem}}
 table{{width:100%;border-collapse:collapse;font-size:.85rem}}th,td{{text-align:left;padding:.45rem;border-bottom:1px solid #334155}}
+.up{{background:#052e16;border:1px solid #16a34a;border-radius:.75rem;padding:.8rem 1rem;margin:.5rem 0}}
+.down{{background:#450a0a;border:1px solid #dc2626;border-radius:.75rem;padding:.8rem 1rem;margin:.5rem 0;font-size:1.1rem}}
+.card.off b{{color:#f87171}}
 small{{color:#94a3b8}}</style></head><body>
 <h1>🌱 IoT LilyGo - Monitor <small>(auto-refresh 10s)</small></h1>
+{banner}
 <p><small>Dispositivo: <b>{_h.escape(str(last.get("device_id", "--")))}</b> · Última muestra: {_h.escape(str(last.get("ts", "--")))}</small></p>
 <div class="cards">{cards}</div>
 <table><tr><th>Fecha/hora</th><th>Equipo</th><th>Temp °C</th><th>Hum %</th><th>Suelo %</th><th>Solar W/m²</th><th>Bat V</th></tr>
