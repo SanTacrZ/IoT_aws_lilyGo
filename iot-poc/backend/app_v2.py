@@ -217,6 +217,59 @@ def disable_device(dev):
             return jsonify(error="not found"), 404
     return jsonify(status="disabled", device_id=dev)
 
+@app.get("/api/v2/commands/pending")
+def pending_commands():
+    """El firmware consulta sus ordenes (riego) tras cada POST de datos."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    dev = request.args.get("device_id", "")
+    if not dev:
+        return jsonify(error="device_id requerido"), 422
+    out = []
+    with db().cursor() as cur:
+        # expirar ordenes viejas (nunca regar con orden antigua)
+        cur.execute("UPDATE commands SET status='expired' WHERE status='pending' "
+                    "AND created_at < now() - interval '30 minutes'")
+        cur.execute("""SELECT c.cmd_id, a.label, c.action, c.payload
+                       FROM commands c JOIN actuators a USING (actuator_id)
+                       WHERE a.device_id = %s AND c.status = 'pending'
+                       ORDER BY c.cmd_id""", (dev,))
+        for cmd_id, label, action, payload in cur.fetchall():
+            out.append({"cmd_id": cmd_id, "actuator": label, "action": action, "payload": payload})
+            cur.execute("UPDATE commands SET status='delivered', delivered_at=now() WHERE cmd_id=%s", (cmd_id,))
+    return jsonify(out)
+
+@app.post("/api/v2/commands/<int:cmd_id>/done")
+def command_done(cmd_id: int):
+    """El firmware reporta el resultado de ejecutar un comando."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    try:
+        data = json.loads(request.get_data() or b"{}")
+    except json.JSONDecodeError:
+        return jsonify(error="JSON invalido"), 400
+    with db().cursor() as cur:
+        cur.execute("UPDATE commands SET status=%s, done_at=now(), result=%s WHERE cmd_id=%s",
+                    ("done" if data.get("result", "ok") == "ok" else "failed",
+                     str(data.get("result", "ok")), cmd_id))
+        if cur.rowcount == 0:
+            return jsonify(error="not found"), 404
+    return jsonify(status="ok", cmd_id=cmd_id)
+
+@app.get("/api/v2/devices/<dev>/sensors/<sid>/health")
+def sensor_health(dev, sid):
+    """Diagnostico: edad de la ultima muestra del sensor."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    with db().cursor() as cur:
+        cur.execute("SELECT last_value, last_seen, enabled FROM sensors_v2 WHERE device_id=%s AND sensor_id=%s", (dev, sid))
+        r = cur.fetchone()
+        if not r:
+            return jsonify(error="not found"), 404
+        return jsonify(sensor_id=sid, last_value=r[0],
+                       last_seen=r[1].isoformat() if r[1] else None,
+                       enabled=r[2], status=status_of(r[1]))
+
 @app.get("/dashboard-v2")
 def dashboard_v2():
     return """<!doctype html><html lang="es"><head><meta charset="utf-8">
