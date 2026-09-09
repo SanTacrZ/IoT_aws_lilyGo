@@ -14,6 +14,8 @@ docker compose -f docker-compose.dev.yml --profile demo up -d sim   # (opcional)
 | api-v1 | http://localhost:8000 | POC de clase (compatibilidad) |
 | db | localhost:5433 | PostgreSQL 16 + TimescaleDB (datos persistentes en volumen) |
 | rule-engine | — | motor de riego: evalúa reglas cada 60 s |
+| mosquitto | :1884 | broker MQTT dev (anon; en AWS = IoT Core X.509) |
+| mqtt-ingest | — | consume `agrosense/+/data` → mismo upsert autónomo que HTTP |
 | seed | — | one-shot: extensión timescale + migración 002 + datos demo |
 | sim | — | placas virtuales que postean firmado HMAC cada 30 s |
 
@@ -43,6 +45,15 @@ Tambien corre en CI (GitHub Actions) contra un servicio timescaledb efimero.
 ## Prueba de estres
 ```bash
 python3 tools/stress_test.py http://localhost:8001 reads 500 30   # desde el host
+```
+
+## Probar MQTT (fase 5)
+```bash
+docker compose -f docker-compose.dev.yml exec mosquitto mosquitto_pub -h localhost \
+  -t "agrosense/mqtt-dev-01/data" -q 1 \
+  -m '{"device_id":"mqtt-dev-01","name":"Placa MQTT","fw":"v5","sensors":[{"sensor_id":"soil1","type":"soil","unit":"%","value":38.5}]}'
+# la placa se registra sola: verla en /api/v2/state y en el dashboard
+# firmware: iot-poc/firmware/lilygo_mqtt.ino (PubSubClient, QoS1)
 ```
 
 ## Reset total

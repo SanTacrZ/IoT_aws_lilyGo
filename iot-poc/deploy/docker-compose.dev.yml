@@ -72,6 +72,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  mosquitto: # broker MQTT (dev: anonimo; en AWS = IoT Core con X.509)
+    image: eclipse-mosquitto:2
+    command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+    ports:
+      - "1884:1883"
+
+  mqtt-ingest: # consume agrosense/+/data y lo inserta en Postgres
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    command: ["python", "-u", "mqtt_ingest.py"]
+    env_file: .env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: iot
+      DB_USER: iot
+      DB_PASSWORD: iot
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   seed: # one-shot: extension timescale + migracion 002 + datos demo
     build:
       context: ../..

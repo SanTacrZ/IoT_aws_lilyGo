@@ -79,7 +79,7 @@ Ver `docs/DATA_MODEL.md` y `db/migrations/002_precision.sql`. Resumen:
 | 2. Autonomía | Registro auto, dashboard multi-equipo v2 | ✅ (rama actual) |
 | 3. Precisión | Zonas/cultivos, motor de riego, comandos, alertas | 🔨 (esta rama) |
 | 4. Nube AWS | RDS+TimescaleDB, ECS Fargate, S3, SNS, CI/CD | ⏳ docs/AWS_DEPLOYMENT.md |
-| 5. MQTT+X.509 | IoT Core, shadows, LoRaWAN para parcelas remotas | ⏳ |
+| 5. MQTT+X.509 | Ingesta MQTT local lista (Mosquitto + mqtt_ingest.py + firmware lilygo_mqtt.ino, esquema y topics idénticos a IoT Core). Falta: X.509 + shadows en AWS | 🔄 en progreso |
 | 6. Inteligencia | ET0 (Penman-Monteith) con datos OpenWeather, TinyML anomalías | ⏳ |
 
 ## 6. Costos estimados (comunidad pequeña, fase 4)
