@@ -1165,6 +1165,13 @@ setInterval(feed, 15000);
 </body></html>"""
 
 
+@app.get("/")
+@app.get("/dashboard")
+def index_redirect():
+    """La raiz siempre lleva al dashboard (evita 404 al compartir la URL a secas)."""
+    from flask import redirect
+    return redirect("/dashboard-v2")
+
 @app.get("/dashboard-v2")
 def dashboard_v2():
     """Dashboard informativo: zonas, estados agronomicos, tendencia, feed y toasts."""
