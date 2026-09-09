@@ -1237,22 +1237,22 @@ DASHBOARD_HTML = """<!doctype html>
         <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
           <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0"><i data-lucide="radio" class="w-5 h-5"></i></div>
           <div><span class="text-xs font-medium uppercase tracking-wider text-slate-400">Nodos en línea</span>
-          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-white mt-0.5"><span class="text-emerald-400">${s.devices_online}</span><span class="text-slate-500 text-lg">/${s.devices_total}</span></div></div>
+          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight break-words min-w-0 text-white mt-0.5"><span class="text-emerald-400">${s.devices_online}</span><span class="text-slate-500 text-lg">/${s.devices_total}</span></div></div>
         </div>
         <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
           <div class="w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center shrink-0"><i data-lucide="droplets" class="w-5 h-5"></i></div>
           <div><span class="text-xs font-medium uppercase tracking-wider text-slate-400">Ciclos de Riego</span>
-          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-white mt-0.5">${s.irrigations_today} <span class="text-xs font-sans text-slate-400 font-normal">hoy</span></div></div>
+          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight break-words min-w-0 text-white mt-0.5">${s.irrigations_today} <span class="text-xs font-sans text-slate-400 font-normal">hoy</span></div></div>
         </div>
         <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 hover:border-slate-700 transition">
           <div class="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0"><i data-lucide="gauge" class="w-5 h-5"></i></div>
           <div><span class="text-xs font-medium uppercase tracking-wider text-slate-400">Consumo Hídrico</span>
-          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-white mt-0.5">${Number(s.liters_today).toLocaleString()} <span class="text-xs font-mono text-slate-400 font-normal">L</span></div></div>
+          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight break-words min-w-0 text-white mt-0.5">${Number(s.liters_today).toLocaleString()} <span class="text-xs font-mono text-slate-400 font-normal">L</span></div></div>
         </div>
         <div onclick="loadAlerts()" class="cursor-pointer bg-slate-900/80 border ${isAlarm ? 'border-amber-500/40 hover:border-amber-500' : 'border-slate-800/80 hover:border-slate-700'} rounded-2xl p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4 shadow-lg shadow-black/10 transition group">
           <div class="w-12 h-12 rounded-xl ${isAlarm ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0 group-hover:scale-105 transition"><i data-lucide="alert-triangle" class="w-5 h-5"></i></div>
           <div><span class="text-xs font-medium uppercase tracking-wider text-slate-400">Alertas Activas</span>
-          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight ${isAlarm ? 'text-amber-400' : 'text-slate-300'} mt-0.5">${s.alerts_open}</div></div>
+          <div class="text-2xl sm:text-3xl font-bold font-mono tracking-tight break-words min-w-0 ${isAlarm ? 'text-amber-400' : 'text-slate-300'} mt-0.5">${s.alerts_open}</div></div>
         </div>`;
       if (window.lucide) lucide.createIcons();
     }
@@ -1321,7 +1321,7 @@ DASHBOARD_HTML = """<!doctype html>
 
     function zoneHtml(z, devs) {
       const headActions = z ? `
-        <div class="flex items-center gap-2 mt-2 sm:mt-0 ml-auto">
+        <div class="flex items-center flex-wrap gap-2 mt-2 sm:mt-0 sm:ml-auto">
           <button onclick="irrigate(${z.zone_id}, 15)" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-[13px] font-semibold shadow-md shadow-emerald-950 transition active:scale-95">
             <i data-lucide="droplet" class="w-3.5 h-3.5"></i><span>Riego 15m</span>
           </button>
@@ -1331,22 +1331,24 @@ DASHBOARD_HTML = """<!doctype html>
         </div>` : "";
       const badges = z ? `
         <div class="flex items-center flex-wrap gap-2 text-xs">
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">
-            <i data-lucide="leaf" class="w-3 h-3"></i> ${z.crop || "Cultivo general"}
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium min-w-0">
+            <i data-lucide="leaf" class="w-3 h-3 shrink-0"></i> ${z.crop || "Cultivo general"}
           </span>
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-slate-300 font-mono text-[11px]">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-slate-300 font-mono text-[11px] min-w-0">
             Umbrales: <b class="text-white">${z.soil_min_pct}%</b> min · <b class="text-white">${z.soil_max_pct}%</b> max
           </span>
         </div>` : `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400">Sin zona asignada</span>`;
 
       return `
-        <div class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-5 shadow-lg shadow-black/20 space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-800/80 min-w-0">
-            <div class="min-w-0"><h3 class="text-lg font-semibold text-white tracking-tight break-words">${z ? z.name : "Equipos en campo"}</h3>
-            <div class="mt-1.5">${badges}</div></div>
-            ${headActions}
+        <div class="bg-slate-900/70 border border-slate-800/90 rounded-2xl p-5 shadow-lg shadow-black/20 space-y-4 min-w-0">
+          <div class="pb-3.5 border-b border-slate-800/80 min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-white tracking-tight break-words min-w-0">${z ? z.name : "Equipos en campo"}</h3>
+              ${headActions}
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-2 min-w-0">${badges}</div>
           </div>
-          <div class="space-y-4">
+          <div class="space-y-4 min-w-0">
             ${devs.length ? devs.map(devHtml).join("") : `<div class="p-4 text-xs text-slate-500 text-center">No hay sondas reportando en esta zona.</div>`}
           </div>
         </div>`;
@@ -1384,14 +1386,14 @@ DASHBOARD_HTML = """<!doctype html>
              style="--card-accent: ${colorObj.hex}"
              onclick="openChart('${d.device_id}','${s.sensor_id}','${s.type || s.sensor_id}','${displayUnit}')"
              data-dev="${d.device_id}" data-sid="${s.sensor_id}" data-color="${colorObj.hex}">
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex items-center gap-2">
+          <div class="flex items-start justify-between gap-2 flex-wrap">
+            <div class="flex items-center gap-2 min-w-0">
               <div class="w-8 h-8 rounded-lg ${colorObj.bg} ${colorObj.text} border ${colorObj.border} flex items-center justify-center shrink-0">
                 <i data-lucide="${meta.icon}" class="w-4 h-4"></i>
               </div>
               <div class="text-[13px] font-medium text-slate-200 truncate max-w-[128px]" title="${meta.name}">${meta.name}</div>
             </div>
-            ${st.tag ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colorObj.badge} tracking-wider">${st.tag}</span>` : ''}
+            ${st.tag ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colorObj.badge} tracking-wider shrink-0">${st.tag}</span>` : ''}
           </div>
           <div class="mt-2.5 flex items-baseline justify-between gap-2 flex-wrap">
             <div class="text-3xl font-bold font-mono text-white tracking-tight min-w-0 break-words text-left">${s.last_value ?? "--"}<span class="text-xs font-sans text-slate-400 font-normal">${displayUnit}</span></div>
