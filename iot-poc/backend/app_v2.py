@@ -1283,9 +1283,9 @@ DASHBOARD_HTML = """<!doctype html>
       return `
         <div class="mt-3.5 pt-2 border-t border-slate-800/60">
           <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5">
-            <span>Rango [${lo}]</span>
+            <span>Rango ${lo}</span>
             <span class="font-medium text-slate-300">${pct}%</span>
-            <span>[${hi}]</span>
+            <span>${hi}</span>
           </div>
           <div class="h-2 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
             <div class="h-full rounded-full transition-all duration-500" style="width: ${pct}%; background-color: var(--card-accent, #38bdf8)"></div>
@@ -1367,8 +1367,8 @@ DASHBOARD_HTML = """<!doctype html>
               <button onclick="rmDev('${d.device_id}')" title="Desvincular nodo" class="text-xs text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-900 transition"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
             </div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3.5">
-            ${(d.sensors || []).map(s => sensorHtml(d, s)).join("")}
+          <div class="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(215px,1fr))]">
+            ${(d.sensors && d.sensors.length) ? d.sensors.map(s => sensorHtml(d, s)).join("") : `<div class="col-span-full text-[11px] text-slate-500 text-center py-2">Nodo sin sensores activos</div>`}
           </div>
         </div>`;
     }
