@@ -5,6 +5,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY iot-poc/backend/ /app/
 COPY db/ /app/db/
 COPY automation/ /app/automation/
+COPY iot-poc/firmware/sim_device_v2.py /app/sim_device_v2.py
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=12 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "app:app"]

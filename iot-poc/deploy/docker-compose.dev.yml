@@ -89,12 +89,12 @@ services:
         condition: service_healthy
     restart: "no"
 
-  sim: # simulador de placas (opcional: --profile demo)
+  sim: # simulador de placa (opcional: --profile demo)
     profiles: ["demo"]
-    image: python:3.11-slim
-    volumes:
-      - ../firmware:/sim
-    command: ["python", "/sim/sim_device_v2.py", "http://api-v2:8000", "lilygo-01"]
+    build:
+      context: ../..
+      dockerfile: iot-poc/backend/Dockerfile.dev
+    command: ["python", "-u", "sim_device_v2.py", "http://api-v2:8000", "lilygo-01"]
     env_file: .env.dev
     depends_on:
       api-v2:

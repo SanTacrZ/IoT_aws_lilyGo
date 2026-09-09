@@ -618,7 +618,7 @@ def state():
         return jsonify(error="api-key invalida"), 401
     # 2 queries totales (devices + sensors en lote) en vez de N+1
     with db().cursor() as cur:
-        cur.execute("SELECT device_id, name, fw, enabled, last_seen FROM devices_v2 ORDER BY device_id")
+        cur.execute("SELECT device_id, name, fw, enabled, last_seen, zone_id FROM devices_v2 ORDER BY device_id")
         devs = cur.fetchall()
         ids = [d[0] for d in devs]
         sens_by_dev: dict[str, list] = {}
@@ -631,9 +631,10 @@ def state():
                     {"sensor_id": r[1], "type": r[2], "unit": r[3], "enabled": r[4],
                      "last_value": r[5], "last_seen": r[6].isoformat() if r[6] else None})
     out = []
-    for device_id, name, fw, enabled, last_seen in devs:
+    for device_id, name, fw, enabled, last_seen, zone_id in devs:
         out.append({"device_id": device_id, "name": name, "fw": fw, "enabled": enabled,
                     "last_seen": last_seen.isoformat() if last_seen else None,
+                    "zone_id": zone_id,
                     "status": status_of(last_seen) if enabled else "disabled",
                     "sensors": [s for s in sens_by_dev.get(device_id, []) if s["enabled"]]})
     return jsonify(devices=out)
@@ -829,6 +830,9 @@ def dashboard_v2():
 .online{color:#4ade80}.stale{color:#facc15}.offline{color:#f87171}.disabled{color:#94a3b8}
 button{background:#475569;color:#fff;border:0;border-radius:.4rem;padding:.3rem .6rem;cursor:pointer;font-size:.75rem}
 small{color:#94a3b8}
+.alert{background:#1e293b;border-radius:.5rem;padding:.5rem .8rem;margin:.3rem 0;font-size:.85rem}
+.alert.warn{border-left:4px solid #facc15}.alert.critical{border-left:4px solid #f87171}
+.alert.info{border-left:4px solid #38bdf8}
 #overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
 #chartbox{background:#1e293b;border-radius:.75rem;padding:1rem;width:min(720px,95vw)}
 canvas{max-height:260px}</style>
@@ -850,6 +854,7 @@ async function refresh() {
       <div class="dev"><h3>${d.name || d.device_id} <span class="${d.status}">● ${d.status}</span>
       <small>${d.device_id} · ${d.fw||""} · ${d.last_seen||"sin datos"}</small></h3>
       <button onclick="rmDev('${d.device_id}')">Quitar equipo</button>
+      ${d.zone_id ? `<button onclick="irrigate(${d.zone_id},10)">💧 Riego 10</button><button onclick="irrigate(${d.zone_id},0)">⏹ Stop</button>` : ""}
       <div class="cards">${d.sensors.map(s => `
         <div class="card"><span>${s.type||s.sensor_id} (${s.unit||""})<br>${s.sensor_id}</span>
         <b>${s.last_value ?? "--"}</b><br>
@@ -857,9 +862,36 @@ async function refresh() {
         <button onclick="rmSens('${d.device_id}','${s.sensor_id}')">Quitar</button></div>`).join("") || "<small>Sin sensores habilitados</small>"}</div></div>`).join("")
       : "Sin equipos todavía — enciende una placa.";
   } catch(e) { document.getElementById("root").innerHTML = "Error: " + e.message; }
+  if(sessionStorage.ADM) loadAlerts();
 }
+refresh(); setInterval(refresh, 5000);
+</script>
+<button onclick="loadAlerts()" style="margin:.5rem 0">🔔 Alertas abiertas</button>
+<div id="alerts"></div>
 async function rmSens(d, s){ if(confirm(`Quitar ${s} de ${d}?`)){ await api(`/api/v2/devices/${d}/sensors/${s}`, {method:"DELETE"}); refresh(); } }
 async function rmDev(d){ if(confirm(`Quitar equipo ${d}?`)){ await api(`/api/v2/devices/${d}`, {method:"DELETE"}); refresh(); } }
+function ensureAdm(){ return sessionStorage.ADM || (sessionStorage.ADM = prompt("X-Admin-Key (gobernar riegos/alertas):") || ""); }
+async function irrigate(zid, min){
+  const k = ensureAdm(); if(!k) return;
+  const r = await fetch(`/api/v2/zones/${zid}/irrigate`, {method:"POST",
+    headers:{"Content-Type":"application/json","X-Admin-Key":k},
+    body: JSON.stringify(min > 0 ? {duration_min:min} : {stop:true})});
+  if(!r.ok){ alert("fallo: " + await r.text()); } else { refresh(); }
+}
+async function loadAlerts(){
+  const k = ensureAdm(); if(!k) return;
+  try{
+    const r = await fetch("/api/v2/alerts", {headers:{"X-Admin-Key":k}});
+    const list = r.ok ? await r.json() : [];
+    document.getElementById("alerts").innerHTML = list.map(a =>
+      `<div class="alert ${a.severity}">[${a.kind}] ${a.message}
+       <button onclick="ack(${a.alert_id})">Ack</button></div>`).join("") || "Sin alertas abiertas";
+  }catch(e){ document.getElementById("alerts").innerHTML = "alertas: " + e.message; }
+}
+async function ack(id){
+  await fetch(`/api/v2/alerts/${id}/ack`, {method:"POST", headers:{"X-Admin-Key":sessionStorage.ADM||""}});
+  loadAlerts();
+}
 let charts = [];
 function mkChart(id, labels, data, label, color){
   const old = Chart.getChart(id); if(old) old.destroy();

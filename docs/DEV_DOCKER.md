@@ -33,7 +33,19 @@ curl -s -H "X-Admin-Key: demo-admin-cambiar" localhost:8001/api/v2/farms
 docker compose -f docker-compose.dev.yml logs -f rule-engine
 ```
 
+## Tests (7 de integracion: CRUD + ingesta HMAC + ciclo de riego)
+```bash
+docker compose -f docker-compose.dev.yml exec api-v2 pip install -q pytest
+docker compose -f docker-compose.dev.yml exec api-v2 pytest -q
+```
+Tambien corre en CI (GitHub Actions) contra un servicio timescaledb efimero.
+
+## Prueba de estres
+```bash
+python3 tools/stress_test.py http://localhost:8001 reads 500 30   # desde el host
+```
+
 ## Reset total
 ```bash
-docker compose -f docker-compose.dev.yml down -v   # borra datos también
+docker compose -f docker-compose.dev.yml down -v   # borra datos tambien
 ```

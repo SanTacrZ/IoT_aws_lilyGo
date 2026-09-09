@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts (created_at DESC) WHERE acked_at IS NULL;
 
+-- FKs de zona: al borrar zona (force) los dispositivos/actuadores NO se borran,
+-- quedan sin zona (SET NULL) para reasignar; no se pierde el registro autonomo.
+ALTER TABLE actuators DROP CONSTRAINT IF EXISTS actuators_zone_id_fkey;
+ALTER TABLE actuators ADD CONSTRAINT actuators_zone_id_fkey
+  FOREIGN KEY (zone_id) REFERENCES zones(zone_id) ON DELETE SET NULL;
+ALTER TABLE devices_v2 DROP CONSTRAINT IF EXISTS devices_v2_zone_id_fkey;
+ALTER TABLE devices_v2 ADD CONSTRAINT devices_v2_zone_id_fkey
+  FOREIGN KEY (zone_id) REFERENCES zones(zone_id) ON DELETE SET NULL;
+
 -- Usuarios y roles comunitarios
 CREATE TABLE IF NOT EXISTS users (
   user_id    BIGSERIAL PRIMARY KEY,

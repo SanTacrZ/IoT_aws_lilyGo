@@ -1,7 +1,7 @@
 name: ci
 on: [push, pull_request]
 jobs:
-  test:
+  unit: # unitarios sin DB (contrato, auth, rangos)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -9,4 +9,31 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install flask boto3 pytest
-      - run: pytest iot-poc/backend/tests/ -q
+      - run: pytest iot-poc/backend/tests/test_app.py -q
+
+  integration: # CRUD + ingesta + riego contra Postgres+Timescale real
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: iot
+          POSTGRES_PASSWORD: iot
+          POSTGRES_DB: iot
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U iot -d iot"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r iot-poc/backend/requirements.txt pytest
+      - run: pytest iot-poc/backend/tests/test_app_v2.py -q
+        env:
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_NAME: iot
+          DB_USER: iot
+          DB_PASSWORD: iot
