@@ -183,6 +183,84 @@ def latest():
         return jsonify([dict(zip(cols, r)) for r in cur.fetchall()])
 
 
+@app.delete("/api/v1/readings/<int:rid>")
+def delete_reading(rid: int):
+    """CRUD: elimina una lectura por id. Protegida con API-Key."""
+    if request.headers.get("X-Api-Key") != DEVICE_API_KEY:
+        return jsonify(error="api-key invalida"), 401
+    with db().cursor() as cur:
+        cur.execute("DELETE FROM readings WHERE id=%s", (rid,))
+        if cur.rowcount == 0:
+            return jsonify(error="not found"), 404
+    return jsonify(status="deleted", id=rid)
+
+
+@app.put("/api/v1/readings/<int:rid>")
+def update_reading(rid: int):
+    """CRUD: actualiza campos de una lectura. Requiere auth firmada (igual que ingest)."""
+    raw = request.get_data()
+    ok, msg = verify_auth(raw)
+    if not ok:
+        return jsonify(error=msg), 401
+    try:
+        data = json.loads(raw or b"{}")
+    except json.JSONDecodeError:
+        return jsonify(error="JSON invalido"), 400
+    allowed = ("temperature_c", "humidity_pct", "soil_moisture_pct", "solar_w_m2", "battery_v")
+    sets = [(f, data[f]) for f in allowed if f in data]
+    if not sets:
+        return jsonify(error="nada para actualizar"), 422
+    clause = ", ".join(f"{f}=%s" for f, _ in sets)
+    with db().cursor() as cur:
+        cur.execute(f"UPDATE readings SET {clause} WHERE id=%s", (*[v for _, v in sets], rid))
+        if cur.rowcount == 0:
+            return jsonify(error="not found"), 404
+    return jsonify(status="updated", id=rid)
+
+
+@app.get("/dashboard")
+def dashboard():
+    """Pagina para la clase: ultima muestra + ultimas 20, sin clave (solo lectura)."""
+    import html as _h
+    with db().cursor() as cur:
+        cur.execute("SELECT device_id, ts, temperature_c, humidity_pct,"
+                    " soil_moisture_pct, solar_w_m2, battery_v FROM readings"
+                    " ORDER BY ts DESC LIMIT 20")
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    last = rows[0] if rows else {}
+    cards = "".join(
+        f'<div class="card"><span>{label}</span><b>{_h.escape(str(last.get(k, "--")))}{unit}</b></div>'
+        for label, k, unit in [("🌡 Temperatura", "temperature_c", " °C"),
+                               ("💧 Humedad", "humidity_pct", " %"),
+                               ("🌱 Suelo", "soil_moisture_pct", " %"),
+                               ("☀️ Solar", "solar_w_m2", " W/m²"),
+                               ("🔋 Batería", "battery_v", " V")])
+    trs = "".join(
+        "<tr><td>{ts}</td><td>{dev}</td><td>{t}</td><td>{h}</td><td>{s}</td><td>{sol}</td><td>{b}</td></tr>".format(
+            **{k: _h.escape(str(r.get(k, ""))) for k in
+               (("ts", "device_id", "temperature_c", "humidity_pct",
+                 "soil_moisture_pct", "solar_w_m2", "battery_v"))} |
+            {"ts": _h.escape(str(r.get("ts", ""))), "dev": _h.escape(str(r.get("device_id", ""))),
+             "t": r.get("temperature_c", ""), "h": r.get("humidity_pct", ""),
+             "s": r.get("soil_moisture_pct", ""), "sol": r.get("solar_w_m2", ""),
+             "b": r.get("battery_v", "")})
+        for r in rows)
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="10"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IoT LilyGo - Monitor</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;background:#0f172a;color:#e2e8f0}}
+.cards{{display:flex;gap:.8rem;flex-wrap:wrap;margin:1rem 0}}.card{{flex:1;min-width:150px;background:#1e293b;border-radius:.75rem;padding:1rem;text-align:center}}
+.card span{{font-size:.8rem;color:#94a3b8}}.card b{{font-size:1.6rem;display:block;margin-top:.3rem}}
+table{{width:100%;border-collapse:collapse;font-size:.85rem}}th,td{{text-align:left;padding:.45rem;border-bottom:1px solid #334155}}
+small{{color:#94a3b8}}</style></head><body>
+<h1>🌱 IoT LilyGo - Monitor <small>(auto-refresh 10s)</small></h1>
+<p><small>Dispositivo: <b>{_h.escape(str(last.get("device_id", "--")))}</b> · Última muestra: {_h.escape(str(last.get("ts", "--")))}</small></p>
+<div class="cards">{cards}</div>
+<table><tr><th>Fecha/hora</th><th>Equipo</th><th>Temp °C</th><th>Hum %</th><th>Suelo %</th><th>Solar W/m²</th><th>Bat V</th></tr>
+{trs or '<tr><td colspan="7">Sin datos todavía</td></tr>'}</table></body></html>"""
+
+
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=8000)
