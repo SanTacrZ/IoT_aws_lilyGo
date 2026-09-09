@@ -41,7 +41,13 @@ def db():
            "password": os.getenv("DB_PASSWORD", "iot")}
     return psycopg2.connect(connect_timeout=5, **cfg)
 
-def push_alert(cur, zone_id, device_id, kind, message):
+def push_alert(cur, zone_id, device_id, kind, message, cooldown_min=60):
+    # dedupe: la misma zona+kind no se repite dentro de la ventana
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=cooldown_min)
+    cur.execute("""SELECT 1 FROM alerts WHERE zone_id IS NOT DISTINCT FROM %s
+                   AND kind = %s AND created_at > %s LIMIT 1""", (zone_id, kind, cutoff))
+    if cur.fetchone():
+        return
     cur.execute("INSERT INTO alerts (zone_id, device_id, severity, kind, message) "
                 "VALUES (%s,%s,%s,%s,%s)",
                 (zone_id, device_id, SEVERITY_KINDS.get(kind, "info"), kind, message))

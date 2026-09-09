@@ -54,11 +54,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  rule-engine: # motor de riego de precision (ciclo cada 60s)
+  rule-engine:
+    healthcheck:
+      disable: true # motor de riego de precision (ciclo cada 60s)
     build:
       context: ../..
       dockerfile: iot-poc/backend/Dockerfile.dev
-    command: ["python", "automation/loop.py"]
+    command: ["python", "-m", "automation.loop"]
     env_file: .env.dev
     environment:
       DB_HOST: db
@@ -78,7 +80,9 @@ services:
     ports:
       - "1884:1883"
 
-  mqtt-ingest: # consume agrosense/+/data y lo inserta en Postgres
+  mqtt-ingest:
+    healthcheck:
+      disable: true # consume agrosense/+/data y lo inserta en Postgres
     build:
       context: ../..
       dockerfile: iot-poc/backend/Dockerfile.dev
@@ -114,7 +118,9 @@ services:
         condition: service_healthy
     restart: "no"
 
-  sim: # simulador de placa (opcional: --profile demo)
+  sim:
+    healthcheck:
+      disable: true # simulador de placa (opcional: --profile demo)
     profiles: ["demo"]
     build:
       context: ../..
