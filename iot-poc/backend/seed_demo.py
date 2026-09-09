@@ -74,9 +74,22 @@ def main():
             cur.execute("""SELECT add_continuous_aggregate_policy('readings_hourly',
                            start_offset => INTERVAL '3 hours', end_offset => INTERVAL '1 hour',
                            schedule_interval => INTERVAL '1 hour', if_not_exists => TRUE)""")
-            cur.execute("CALL refresh_continuous_aggregate('readings_hourly', NULL, NULL)")
+            conn.commit()  # CRITICO: liberar locks del DDL antes del CALL (si no: autobloqueo)
+            # CALL de procedimiento: conexion dedicada en autocommit, sin with
+            conn_c = db()
+            conn_c.autocommit = True
+            cur_c = conn_c.cursor()
+            try:
+                cur_c.execute("CALL refresh_continuous_aggregate('readings_hourly', NULL, NULL)")
+                print("refresh continuous aggregate ok")
+            except Exception as e:
+                print("refresh inicial omitido:", e)
+            finally:
+                cur_c.close()
+                conn_c.close()
             print("timescale: hipertable + compresion + continuous aggregate ok")
         except Exception as e:
+            conn.rollback()
             print("timescale politicas omitidas:", e)
 
         # 5) Datos demo (solo si vacio)
