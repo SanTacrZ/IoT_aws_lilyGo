@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 from flask import Flask, jsonify, request
@@ -696,7 +696,7 @@ def pending_commands():
 
 @app.post("/api/v2/commands/<int:cmd_id>/done")
 def command_done(cmd_id: int):
-    """El firmware reporta el resultado de ejecutar un comando."""
+    """El firmware reporta el resultado de ejecutar un comando; cierra el evento de riego abierto."""
     if not check_key():
         return jsonify(error="api-key invalida"), 401
     try:
@@ -709,7 +709,69 @@ def command_done(cmd_id: int):
                      str(data.get("result", "ok")), cmd_id))
         if cur.rowcount == 0:
             return jsonify(error="not found"), 404
+        # cerrar el riego abierto de ese actuador y registrar litros del caudalimetro
+        cur.execute("""UPDATE irrigation_events SET ended_at=now(),
+                       duration_min=EXTRACT(EPOCH FROM (now()-started_at))/60,
+                       liters=COALESCE(%s, liters)
+                       WHERE actuator_id=(SELECT actuator_id FROM commands WHERE cmd_id=%s)
+                       AND ended_at IS NULL""", (data.get("liters"), cmd_id))
     return jsonify(status="ok", cmd_id=cmd_id)
+
+@app.get("/api/v2/config")
+def device_config():
+    """Umbrales de la zona para el modo degradado (firmware los cachea en NVS)."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    dev = request.args.get("device_id", "")
+    with db().cursor() as cur:
+        cur.execute("""SELECT z.zone_id, z.soil_min_pct, z.soil_max_pct, z.max_irrigation_min
+                       FROM devices_v2 d JOIN zones z ON z.zone_id = d.zone_id
+                       WHERE d.device_id=%s AND z.enabled""", (dev,))
+        r = cur.fetchone()
+        if not r:
+            return jsonify({})
+    return jsonify(zone_id=r[0], soil_min_pct=r[1], soil_max_pct=r[2], max_irrigation_min=r[3])
+
+@app.post("/api/v2/irrigation/report")
+def irrigation_report():
+    """La placa reporta riegos hechos en modo offline (sin internet) al reconectar."""
+    if not check_key():
+        return jsonify(error="api-key invalida"), 401
+    d = body_json() or {}
+    dev, events = str(d.get("device_id", "")), d.get("events", [])
+    if not dev or not isinstance(events, list) or not 1 <= len(events) <= 100:
+        return jsonify(error="device_id y events (1..100) requeridos"), 422
+    with db().cursor() as cur:
+        cur.execute("""SELECT actuator_id FROM actuators WHERE device_id=%s AND kind='pump'
+                       AND enabled ORDER BY actuator_id LIMIT 1""", (dev,))
+        r = cur.fetchone()
+        if not r:
+            return jsonify(error="el dispositivo no tiene bomba habilitada"), 409
+        aid = r[0]
+        n = 0
+        for e in events:
+            try:
+                dur = min(max(float(e["duration_min"]), 0.1), 240.0)
+                lit = float(e.get("liters", 0))
+            except (KeyError, TypeError, ValueError):
+                return jsonify(error=f"evento invalido: {e}"), 422
+            # started_at acepta epoch (firmware) o ISO 8601
+            raw = e.get("started_at")
+            try:
+                started = datetime.fromtimestamp(float(raw), tz=timezone.utc)
+            except (TypeError, ValueError, OverflowError, OSError):
+                try:
+                    started = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    return jsonify(error=f"started_at invalido: {raw}"), 422
+            ended = started + timedelta(minutes=dur)
+            cur.execute("""INSERT INTO irrigation_events
+                           (zone_id, actuator_id, started_at, ended_at, duration_min, liters, trigger, notes)
+                           SELECT d.zone_id, %s, %s, %s, %s, %s, 'offline', 'reportado al reconectar'
+                           FROM devices_v2 d WHERE d.device_id=%s""",
+                        (aid, started, ended, dur, lit, dev))
+            n += 1
+    return jsonify(status="stored", count=n), 201
 
 @app.get("/api/v2/devices/<dev>/sensors/<sid>/health")
 def sensor_health(dev, sid):

@@ -70,10 +70,14 @@ CREATE TABLE IF NOT EXISTS irrigation_events (
   ended_at   TIMESTAMPTZ,
   duration_min DOUBLE PRECISION,
   liters     DOUBLE PRECISION,          -- de caudalímetro si existe
-  trigger    TEXT NOT NULL DEFAULT 'rule' CHECK (trigger IN ('rule','manual','schedule')),
+  trigger    TEXT NOT NULL DEFAULT 'rule' CHECK (trigger IN ('rule','manual','schedule','offline')),
   rule_id    BIGINT,
   notes      TEXT
 );
+-- compatibilidad con esquemas previos al valor 'offline' (modo degradado)
+ALTER TABLE irrigation_events DROP CONSTRAINT IF EXISTS irrigation_events_trigger_check;
+ALTER TABLE irrigation_events ADD CONSTRAINT irrigation_events_trigger_check
+  CHECK (trigger IN ('rule','manual','schedule','offline'));
 
 -- Reglas de automatización por zona (motor de reglas las evalúa)
 CREATE TABLE IF NOT EXISTS rules (
