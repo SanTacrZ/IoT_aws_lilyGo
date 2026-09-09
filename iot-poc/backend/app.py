@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("iot-poc")
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_BODY_BYTES", "4096"))  # tramas pequeñas
 
 # --- Config por entorno (estandar 12-factor) ---
 AWS_REGION = os.getenv("AWS_REGION", "us-west-2")
@@ -27,6 +28,54 @@ S3_BACKUP_BUCKET = os.getenv("S3_BACKUP_BUCKET", "")    # backup frio JSONL
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "")        # API-Key compartida (rotar en prod)
 HMAC_SECRET = os.getenv("HMAC_SECRET", "")              # secreto HMAC (rotar en prod)
 MAX_SKEW_S = int(os.getenv("MAX_SKEW_S", "300"))        # ventana anti-replay 5 min
+RATE_PER_MIN = int(os.getenv("RATE_PER_MIN", "12"))     # tope de POST por dispositivo/min
+STALE_AFTER_S = int(os.getenv("STALE_AFTER_S", "180"))  # umbral dashboard CAIDO
+
+# Rangos fisicos plausibles por sensor (rechaza basura/errores tipo 125.0, -999)
+RANGES = {"temperature_c": (-50.0, 80.0), "humidity_pct": (0.0, 100.0),
+          "soil_moisture_pct": (0.0, 100.0), "solar_w_m2": (0.0, 1500.0),
+          "battery_v": (2.5, 5.5)}
+
+
+@app.after_request
+def _headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+@app.errorhandler(413)
+def _too_large(_e):
+    return jsonify(error="payload muy grande"), 413
+
+
+_rate: dict[str, list[float]] = {}  # device_id -> timestamps (ventana 60 s)
+
+
+def check_rate(device: str) -> bool:
+    now = time.time()
+    hits = [t for t in _rate.get(device, []) if now - t < 60]
+    hits.append(now)
+    _rate[device] = hits[-RATE_PER_MIN:]
+    return len(hits) <= RATE_PER_MIN
+
+
+def validate_reading(data: dict) -> tuple[bool, str]:
+    for f in ("device_id", "temperature_c", "humidity_pct", "soil_moisture_pct", "solar_w_m2"):
+        if f not in data:
+            return False, f"falta campo {f}"
+    if not isinstance(data["device_id"], str) or not 1 <= len(data["device_id"]) <= 64:
+        return False, "device_id invalido"
+    for f, (lo, hi) in RANGES.items():
+        if f in data and data[f] is not None:
+            try:
+                v = float(data[f])
+            except (TypeError, ValueError):
+                return False, f"{f} no numerico"
+            if not (lo <= v <= hi):
+                return False, f"{f} fuera de rango [{lo},{hi}]"
+    return True, "ok"
 
 _db_conn = None
 _secrets_cache: dict = {}
@@ -144,14 +193,15 @@ def ingest():
         data = json.loads(raw or b"{}")
     except json.JSONDecodeError:
         return jsonify(error="JSON invalido"), 400
-    # Validacion minima de contrato LilyGo
-    for f in ("device_id", "temperature_c", "humidity_pct", "soil_moisture_pct", "solar_w_m2"):
-        if f not in data:
-            return jsonify(error=f"falta campo {f}"), 422
+    ok, msg = validate_reading(data)  # contrato + rangos fisicos (rechaza 125.0, -999, etc.)
+    if not ok:
+        return jsonify(error=msg), 422
+    if not check_rate(str(data["device_id"])):  # anti-rafagas por dispositivo
+        return jsonify(error="rate limit excedido"), 429
     entry = {"device_id": str(data["device_id"]), "ts": datetime.now(timezone.utc).isoformat(),
-             "temperature_c": data["temperature_c"], "humidity_pct": data["humidity_pct"],
-             "soil_moisture_pct": data["soil_moisture_pct"], "solar_w_m2": data["solar_w_m2"],
-             "battery_v": data.get("battery_v")}
+             "temperature_c": float(data["temperature_c"]), "humidity_pct": float(data["humidity_pct"]),
+             "soil_moisture_pct": float(data["soil_moisture_pct"]), "solar_w_m2": float(data["solar_w_m2"]),
+             "battery_v": float(data["battery_v"]) if data.get("battery_v") is not None else None}
     with db().cursor() as cur:
         cur.execute(
             "INSERT INTO readings (device_id, temperature_c, humidity_pct,"
@@ -230,7 +280,7 @@ def dashboard():
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
     last = rows[0] if rows else {}
     # Detector de caida: si la ultima muestra es mas vieja que el umbral, placa CAIDA.
-    stale_after = int(os.getenv("STALE_AFTER_S", "180"))  # placa envia 1/min -> 3 min sin datos = caida
+    stale_after = STALE_AFTER_S  # placa envia 1/min -> 3 min sin datos = caida
     down = True
     age_s = None
     try:
