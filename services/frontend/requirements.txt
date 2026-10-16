@@ -1,0 +1,7 @@
+flask==3.0.*
+dash==2.17.*
+plotly==5.22.*
+gunicorn==21.2.*
+pandas==2.2.*
+psycopg2-binary==2.9.*
+requests==2.31.*

@@ -1,0 +1,20 @@
+# Terminacion TLS para el envio de los sensores (perfil docker "tls").
+# Caddy pide el certificado a Let's Encrypt solo y redirige :80 -> :443.
+{$DOMAIN} {
+	encode gzip
+
+	# Cabeceras de endurecimiento mientras estamos en HTTP plano detras del LB.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+
+	reverse_proxy iot-agent:5000 {
+		health_uri /api/v1/health
+		health_interval 30s
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

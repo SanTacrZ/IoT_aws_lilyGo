@@ -1,0 +1,169 @@
+/* Tema oscuro del dashboard IoT.
+   El HTML/Dash solo pone clases; los colores viven aqui para poder cambiarlos
+   sin tocar app.py. */
+
+:root {
+  --bg: #000000;
+  --panel: #0d0d0f;
+  --panel-2: #141418;
+  --borde: #24242b;
+  --texto: #e8e8ec;
+  --texto-2: #9a9aa5;
+  --texto-3: #6b6b76;
+  --acento: #4ade80;
+  --alerta: #f87171;
+  --aviso: #fbbf24;
+  --ok: #34d399;
+  --agua: #38bdf8;
+}
+
+html, body {
+  background: var(--bg) !important;
+  color: var(--texto);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* --- Encabezado --- */
+.dash-header {
+  background: var(--panel) !important;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+.dash-header h1 {
+  color: var(--texto) !important;
+  font-size: 26px;
+  margin: 0 0 4px 0;
+}
+.dash-header p {
+  color: var(--texto-2) !important;
+  margin: 0;
+  font-size: 13px;
+}
+
+/* --- Paneles / tarjetas --- */
+.dash-panel {
+  background: var(--panel) !important;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.dash-kpis {
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.kpi {
+  background: var(--panel-2);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 18px 22px;
+  text-align: center;
+  min-width: 170px;
+  flex: 1 1 170px;
+}
+.kpi-icon { font-size: 30px; margin-bottom: 4px; }
+.kpi-title { color: var(--texto-2); font-size: 13px; margin-bottom: 4px; }
+.kpi-value { font-size: 30px; font-weight: bold; line-height: 1.1; }
+.kpi-unit { color: var(--texto-3); font-size: 11px; margin-top: 2px; }
+
+/* --- Agente IA --- */
+.agent-title { color: var(--texto); margin: 0 0 10px 0; font-size: 17px; }
+.agent-head { font-size: 15px; font-weight: bold; }
+.agent-meta { color: var(--texto-3); font-size: 12px; margin-left: 10px; font-weight: normal; }
+.agent-diagnostico { color: var(--texto); font-size: 15px; margin: 10px 0 6px 0; line-height: 1.45; }
+.agent-accion { color: var(--texto-2); font-size: 14px; margin: 0; }
+.agent-accion strong { color: var(--texto); }
+.agent-foot { color: var(--texto-3); font-size: 11px; margin: 10px 0 0 0; }
+
+.agent-card {
+  border: 1px solid var(--borde);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--panel-2);
+}
+/* Los estados del agente se distinguen por color, no solo por texto. */
+.agent-ok        { border-left-color: var(--ok); }
+.agent-atencion  { border-left-color: var(--aviso); }
+.agent-critico   { border-left-color: var(--alerta); background: #1a0f10; }
+.agent-error     { border-left-color: var(--texto-3); }
+.agent-vacio     { border-left-color: var(--borde); color: var(--texto-2); }
+.agent-ok        .agent-head { color: var(--ok); }
+.agent-atencion  .agent-head { color: var(--aviso); }
+.agent-critico   .agent-head { color: var(--alerta); }
+
+/* --- Banner de alerta del sensor --- */
+.banner {
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  text-align: center;
+  border: 1px solid var(--borde);
+  font-size: 14px;
+}
+.banner-ok      { background: #06210f; color: var(--ok); border-color: #14532d; }
+.banner-critico { background: #200a0a; color: var(--alerta); border-color: #7f1d1d; font-weight: bold; }
+.banner-vacio   { background: #1a1408; color: var(--aviso); border-color: #713f12; }
+
+/* --- Graficas --- */
+.dash-chart { width: 48%; display: inline-block; vertical-align: top; }
+
+/* --- Tabla --- */
+.dash-table h3 { color: var(--texto); margin: 0 0 10px 0; font-size: 16px; }
+.dash-table .dash-table-container {
+  background: var(--panel-2);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+}
+
+/* Dash DataTable: fondo de filas y celdas en oscuro */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+  background: var(--panel-2) !important;
+  border-color: var(--borde) !important;
+  color: var(--texto) !important;
+}
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+  background: #1c1c22 !important;
+  color: #ffffff !important;
+  font-weight: bold;
+}
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td:hover,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+  background: #1e1e25 !important;
+}
+.dash-table-container .dash-filter input,
+.dash-table-container .dash-filter select {
+  background: #0a0a0c !important;
+  color: var(--texto) !important;
+  border: 1px solid var(--borde) !important;
+}
+.dash-pagination,
+.dash-pagination .dash-button {
+  color: var(--texto-2) !important;
+}
+.dash-pagination .dash-button:hover {
+  background: var(--panel-2) !important;
+}
+
+/* En movil las gráficas se apilan */
+@media (max-width: 900px) {
+  .dash-chart { width: 100%; display: block; }
+}
+/* --- Tarjeta del nodo: filas de sensores --- */
+.sensor-fila {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #1c1c22;
+}
+.sensor-fila:last-child { border-bottom: 0; }

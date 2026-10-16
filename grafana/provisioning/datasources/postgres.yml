@@ -1,0 +1,18 @@
+apiVersion: 1
+datasources:
+  - name: PostgreSQL
+    # uid fijo: los tableros provisionados lo referencian por este id.
+    uid: iot-postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: iot
+    user: iot
+    secureJsonData:
+      password: "iot-local"
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    isDefault: true
+    editable: true

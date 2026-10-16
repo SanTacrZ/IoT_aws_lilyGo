@@ -1,0 +1,232 @@
+services:
+  orion:
+    image: fiware/orion-ld
+    hostname: orion
+    container_name: orion
+    depends_on:
+      - mongo-db
+    networks:
+      - default
+    expose:
+      - "1026"
+    # Solo local: por Orion se puede falsear el veredicto del agente.
+    ports:
+      - "127.0.0.1:1026:1026"
+    command: -dbhost mongo-db -logLevel DEBUG
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail -s http://localhost:1026/version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  mongo-db:
+    image: mongo:4.4
+    hostname: mongo-db
+    container_name: db-mongo
+    # Sin 'ports': queda solo en la red interna de Docker. Publicarlo en 27017
+    # dejaba el contexto de Orion abierto (y Mongo no tiene autenticacion).
+    expose:
+      - "27017"
+    networks:
+      - default
+    volumes:
+      - mongo-db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongo --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    hostname: postgres
+    container_name: db-postgres
+    # Sin 'ports': la base de datos no se expone a la red.
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-iot}
+      - POSTGRES_USER=${POSTGRES_USER:-iot}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-iot-local}
+      - TIMESCALEDB_TELEMETRY=off
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-iot} -d ${POSTGRES_DB:-iot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  iot-agent:
+    build: ./services/iot-agent
+    image: iot-agent:${APP_VERSION:-dev}
+    container_name: iot-agent
+    hostname: iot-agent
+    # Unico puerto en la red, y a proposito: es la puerta de entrada de los
+    # sensores. Queda protegido por HMAC + anti-replay + rate limit.
+    ports:
+      - "5000:5000"
+    depends_on:
+      orion:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      - ORION_HOST=orion
+      - ORION_PORT=1026
+      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - DEVICE_API_KEYS=${DEVICE_API_KEYS}
+      - RATE_LIMIT_IP_POR_MIN=${RATE_LIMIT_IP_POR_MIN:-30}
+      - HMAC_SECRET=${HMAC_SECRET}
+      - MAX_SKEW_S=${MAX_SKEW_S:-300}
+      - RATE_LIMIT_POR_MIN=${RATE_LIMIT_POR_MIN:-12}
+    networks:
+      - default
+    restart: unless-stopped
+
+  ai-agent:
+    build: ./services/ai-agent
+    image: ai-agent:${APP_VERSION:-dev}
+    container_name: ai-agent
+    hostname: ai-agent
+    # Solo local: permite disparar analisis (y gastar cuota de Gemini).
+    ports:
+      - "127.0.0.1:5050:5050"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orion:
+        condition: service_started
+    environment:
+      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - ORION_HOST=orion
+      - ORION_PORT=1026
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.8-flash}
+      - GEMINI_FALLBACKS=${GEMINI_FALLBACKS:-gemini-3.6-flash,gemini-3.5-flash,gemini-3.7-flash,gemini-flash-latest}
+      - GEMINI_REINTENTOS=${GEMINI_REINTENTOS:-2}
+      - AGENT_VENTANA_MIN=${AGENT_VENTANA_MIN:-180}
+      - AGENT_SILENCIO_MIN=${AGENT_SILENCIO_MIN:-30}
+    networks:
+      - default
+    restart: unless-stopped
+
+  ai-scheduler:
+    build: ./services/ai-agent
+    image: ai-agent:${APP_VERSION:-dev}
+    container_name: ai-scheduler
+    hostname: ai-scheduler
+    command: ["python", "scheduler.py"]
+    # El scheduler no sirve HTTP (a diferencia de la API), asi que su salud se
+    # mide por la frescura del latido que escribe app/scheduler.py.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/agente-heartbeat && test $(( $(date +%s) - $(stat -c %Y /tmp/agente-heartbeat) )) -lt 180"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      ai-agent:
+        condition: service_started
+    environment:
+      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - ORION_HOST=orion
+      - ORION_PORT=1026
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.8-flash}
+      - GEMINI_FALLBACKS=${GEMINI_FALLBACKS:-gemini-3.6-flash,gemini-3.5-flash,gemini-3.7-flash,gemini-flash-latest}
+      - GEMINI_REINTENTOS=${GEMINI_REINTENTOS:-2}
+      - AGENT_INTERVAL_MIN=${AGENT_INTERVAL_MIN:-15}
+      - AGENT_VENTANA_MIN=${AGENT_VENTANA_MIN:-180}
+      - AGENT_SILENCIO_MIN=${AGENT_SILENCIO_MIN:-30}
+    networks:
+      - default
+    restart: unless-stopped
+
+  # TLS opcional: docker compose --profile tls up -d
+  # Deja el iot-agent solo en la red interna y publica https.
+  gateway:
+    image: caddy:2.8-alpine
+    container_name: gateway-tls
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      - DOMAIN=${DOMAIN}
+    depends_on:
+      - iot-agent
+    networks:
+      - default
+    restart: unless-stopped
+
+  frontend:
+    build: ./services/frontend
+    image: iot-frontend:${APP_VERSION:-dev}
+    container_name: frontend
+    hostname: frontend
+    # Accesible desde el celular en la red, pero con autenticacion basica.
+    ports:
+      - "8080:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orion:
+        condition: service_started
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=${POSTGRES_DB:-iot}
+      - PG_USER=${POSTGRES_USER:-iot}
+      - PG_PASSWORD=${POSTGRES_PASSWORD:-iot-local}
+      - AI_AGENT_HOST=${AI_AGENT_HOST:-ai-agent}
+      - AI_AGENT_PORT=${AI_AGENT_PORT:-5050}
+      - WEB_USER=${WEB_USER:-admin}
+      - WEB_PASSWORD=${WEB_PASSWORD}
+      - DEVICE_API_KEY=${DEVICE_API_KEY}
+      - IOT_AGENT_HOST=${IOT_AGENT_HOST:-iot-agent}
+      - IOT_AGENT_PORT=${IOT_AGENT_PORT:-5000}
+      - ORION_HOST=orion
+      - ORION_PORT=1026
+    networks:
+      - default
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  mongo-db: ~
+  postgres-data: ~
+  grafana: ~
+  caddy-data: ~
+  caddy-config: ~

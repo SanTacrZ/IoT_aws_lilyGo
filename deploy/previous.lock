@@ -1,0 +1,22 @@
+{
+  "ai-agent": {
+    "id": "sha256:43b7eb4f0e6a154bedac13f937f75393f79a9d09e2112531182a741d2f6ba5b4",
+    "repo": "ai-agent",
+    "tag": "20261016-133159"
+  },
+  "ai-scheduler": {
+    "id": "sha256:43b7eb4f0e6a154bedac13f937f75393f79a9d09e2112531182a741d2f6ba5b4",
+    "repo": "ai-agent",
+    "tag": "20261016-133159"
+  },
+  "frontend": {
+    "id": "sha256:263ce1a23b5cd5a79d0f30bc8bef3e5e6a2c042852ff144f9bbfe952868ea0de",
+    "repo": "iot-frontend",
+    "tag": "20261016-133159"
+  },
+  "iot-agent": {
+    "id": "sha256:2e2dc416bc228e3b90687ae8c5aba92bf93b9a55f5b19eca5a8126930b8861a3",
+    "repo": "iot-agent",
+    "tag": "20261016-133159"
+  }
+}
