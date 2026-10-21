@@ -114,7 +114,7 @@ PG_HOST = os.getenv("PG_HOST", "postgres")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_DB = os.getenv("PG_DB", "iot")
 PG_USER = os.getenv("PG_USER", "iot")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "iot-local")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 
 AI_AGENT_URL = f"http://{os.getenv('AI_AGENT_HOST', 'ai-agent')}:{os.getenv('AI_AGENT_PORT', '5050')}"
 AGENT_URL = f"http://{os.getenv('IOT_AGENT_HOST', 'iot-agent')}:{os.getenv('IOT_AGENT_PORT', '5000')}"
@@ -179,7 +179,7 @@ def get_nodos():
     """Estado de cada nodo desde el iot-agent (vivo/caido + salud del equipo)."""
     try:
         r = requests.get(f"{AGENT_URL}/api/nodos", timeout=4,
-                         headers={"X-Api-Key": os.getenv("DEVICE_API_KEY", "")})
+                         headers={"X-Api-Key": os.getenv("READ_API_KEY") or os.getenv("DEVICE_API_KEY", "")})
         if r.ok:
             return r.json().get("nodos", [])
     except requests.RequestException as e:

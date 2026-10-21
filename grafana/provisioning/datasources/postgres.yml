@@ -9,7 +9,8 @@ datasources:
     database: iot
     user: iot
     secureJsonData:
-      password: "iot-local"
+      # Grafana interpola variables de entorno del contenedor al provisionar.
+      password: "$POSTGRES_PASSWORD"
     jsonData:
       sslmode: disable
       postgresVersion: 1600

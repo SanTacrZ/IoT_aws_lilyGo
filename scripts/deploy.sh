@@ -14,8 +14,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 LOCK_DIR="deploy"
-SERVICIOS_APP="iot-agent ai-agent ai-scheduler frontend"
-SERVICIOS_SALUD="db-postgres orion iot-agent ai-agent ai-scheduler frontend"
+SERVICIOS_APP="iot-agent ai-agent ai-scheduler alert-agent frontend"
+SERVICIOS_SALUD="db-postgres orion iot-agent ai-agent ai-scheduler alert-agent frontend"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
 log() { echo -e "\n\033[1;34m==> $*\033[0m"; }

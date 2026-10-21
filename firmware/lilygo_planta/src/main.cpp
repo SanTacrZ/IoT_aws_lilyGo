@@ -8,6 +8,7 @@
 #include <TinyGPS++.h>
 #include <mbedtls/md.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 #include "secrets.h"
 #include "calibracion.h"
 
@@ -15,9 +16,16 @@
 // Cambia DEVICE_ID para cada unidad; no compartas el mismo ID entre nodos.
 // URL_SERVIDOR es la IP de la maquina que corre los contenedores; en UPBWiFi
 // la IP sale por DHCP, asi que revisa con "ip -4 addr" si cambia.
-static const char* URL_SERVIDOR = "http://10.8.150.228:5000/api/plantas";
-static const char* DEVICE_ID = "lilygo-tbeam-01";
+static const char* URL_SERVIDOR = "http://18.208.188.77:5000/api/plantas";
+// scripts/nuevo_nodo.py genera un secrets.h con DEVICE_ID_NODO para cada placa.
+#ifndef DEVICE_ID_NODO
+#define DEVICE_ID_NODO "lilygo-tbeam-01"
+#endif
+static const char* DEVICE_ID = DEVICE_ID_NODO;
 static constexpr uint32_t INTERVALO_LECTURA_S = 60;
+// Si el loop se cuelga (I2C trabado, pila Wi-Fi bloqueada) el watchdog reinicia
+// la placa en vez de dejar el nodo mudo en el campo hasta que alguien vaya.
+static constexpr uint32_t WATCHDOG_S = 120;
 
 // T-Beam SX1276: GPIO32 está conectado al DIO2 del radio. Usamos GPIO39
 // (ADC1_CH3, entrada) para AO del sensor de suelo.
@@ -30,6 +38,7 @@ static constexpr int PIN_HDC1080 = 0x40;
 static constexpr int PIN_AP3216 = 0x1E;      // sensor de luz, mismo bus I2C
 static constexpr int REG_AP3216_ALS = 0x0C;  // 0x0C/0x0D guardan el dato ALS
 static constexpr float AP3216_LUX_POR_CUENTA = 0.35f;  // factor del rango RANGE_20661
+static constexpr int PIN_PMU = 0x34;         // AXP192 (T-Beam v1.0/1.1) o AXP2101 (v1.2)
 
 AP3216_WE sensorLuz(&Wire);
 
@@ -87,10 +96,59 @@ float leerLux() {
   return AP3216_LUX_POR_CUENTA * raw;
 }
 
+// --- Bateria ------------------------------------------------------------------
+// El T-Beam mide la bateria con su PMU en el mismo bus I2C. Segun la revision
+// de la placa es un AXP192 o un AXP2101, con registros distintos: se detecta
+// por el chip id (registro 0x03) y si no responde se omite el dato.
+enum class Pmu : uint8_t { Ninguno, AXP192, AXP2101 };
+Pmu pmu = Pmu::Ninguno;
+
+bool pmuLeer(uint8_t reg, uint8_t* v) {
+  Wire.beginTransmission(PIN_PMU);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(PIN_PMU, 1) != 1) return false;
+  *v = Wire.read();
+  return true;
+}
+
+bool pmuEscribir(uint8_t reg, uint8_t v) {
+  Wire.beginTransmission(PIN_PMU);
+  Wire.write(reg);
+  Wire.write(v);
+  return Wire.endTransmission() == 0;
+}
+
+void detectarPmu() {
+  uint8_t id = 0, r = 0;
+  if (!pmuLeer(0x03, &id)) return;
+  if (id == 0x4A) {                                    // AXP2101: habilita el ADC de VBAT
+    pmu = Pmu::AXP2101;
+    if (pmuLeer(0x30, &r)) pmuEscribir(0x30, r | 0x01);
+  } else if (id == 0x03) {                             // AXP192: ADC de voltaje de bateria
+    pmu = Pmu::AXP192;
+    if (pmuLeer(0x82, &r)) pmuEscribir(0x82, r | 0x80);
+  }
+  Serial.printf("PMU: %s\n", pmu == Pmu::AXP2101 ? "AXP2101" : pmu == Pmu::AXP192 ? "AXP192" : "desconocido");
+}
+
+float leerBateria() {
+  uint8_t h = 0, l = 0;
+  float v = NAN;
+  if (pmu == Pmu::AXP192 && pmuLeer(0x78, &h) && pmuLeer(0x79, &l)) {
+    v = ((uint16_t(h) << 4) | (l & 0x0F)) * 1.1f / 1000.0f;        // 1.1 mV por cuenta
+  } else if (pmu == Pmu::AXP2101 && pmuLeer(0x34, &h) && pmuLeer(0x35, &l)) {
+    v = ((uint16_t(h & 0x1F) << 8) | l) / 1000.0f;                  // mV directos
+  }
+  // Sin bateria conectada el ADC devuelve valores sin sentido: mejor omitirlo.
+  return (v > 2.5f && v < 4.5f) ? v : NAN;
+}
+
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 uint32_t ultimoEnvio = 0;
 uint32_t ultimoWifi = 0;
+uint32_t arranques = 0;
 Preferences colaNvs;
 static constexpr uint8_t MAX_PENDIENTES = 8;
 static constexpr uint8_t MUESTRAS_SUELO = 16;
@@ -256,25 +314,43 @@ void conectarWifi() {
   } else Serial.println("Wi-Fi no disponible; se reintentará sin reiniciar el nodo.");
 }
 
+// Ruta + query de la URL. La firma v2 los cubre: sin eso, un POST capturado se
+// podia reenviar cambiando ?dispositivo= o ?lectura_id= sin romper la firma.
+String recursoDe(const String& url) {
+  const int esquema = url.indexOf("://");
+  const int barra = url.indexOf('/', esquema < 0 ? 0 : esquema + 3);
+  return barra < 0 ? String("/") : url.substring(barra);
+}
+
 bool enviar(const String& body, uint64_t lecturaId) {
   if (WiFi.status() != WL_CONNECTED) return false;
   time_t ahora = time(nullptr);
   if (ahora < 1700000000) return false; // el servidor exige hora sincronizada para anti-replay
   String ts = String((uint32_t)ahora);
-  String firma = firmaHmac(ts + "." + body);
   String url = String(URL_SERVIDOR) + "?dispositivo=" + DEVICE_ID + "&lectura_id=" + String((uint32_t)lecturaId);
+  String firma = firmaHmac(ts + ".POST." + recursoDe(url) + "." + body);
+  esp_task_wdt_reset();
   HTTPClient http;
+  // El cliente TLS vive hasta el final de la funcion: si se declara dentro del
+  // if, se destruye antes del POST y HTTPClient queda usando memoria liberada.
+  WiFiClientSecure clienteTls;
   bool ok = false;
   if (url.startsWith("https://")) {
-    WiFiClientSecure client;
-    client.setInsecure(); // Para producción con HTTPS, instala y valida el certificado CA.
-    if (http.begin(client, url)) ok = true;
-  } else if (http.begin(url)) ok = true;
+#ifdef SERVER_CA_PEM
+    clienteTls.setCACert(SERVER_CA_PEM);
+#else
+    clienteTls.setInsecure();  // define SERVER_CA_PEM en secrets.h para validar el servidor
+#endif
+    ok = http.begin(clienteTls, url);
+  } else {
+    ok = http.begin(url);
+  }
   if (!ok) return false;
   http.setTimeout(8000);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Api-Key", DEVICE_API_KEY);
   http.addHeader("X-Timestamp", ts);
+  http.addHeader("X-Firma-Version", "2");
   http.addHeader("X-Signature", firma);
   int codigo = http.POST(body);
   String respuesta = http.getString();
@@ -334,7 +410,7 @@ void tomarYEnviar() {
   const int sueloPct = pctDesdeRaw(rawSuelo, calSuelo);
   if (!rangoCalibrado(rawSuelo, calSuelo)) {
     Serial.printf("AVISO: sensor de suelo fuera de rango (raw=%u). Revisa VCC del sensor, que "
-                  "el AO este en GPIO32 y que la sonda no este en corto.\n", rawSuelo);
+                  "el AO este en GPIO39 y que la sonda no este en corto.\n", rawSuelo);
   }
   drenarGPS();
   const bool gpsValido = gps.location.isValid() && gps.location.age() < 30000;
@@ -358,7 +434,17 @@ void tomarYEnviar() {
   body += ",\"humedad_suelo_raw\":" + String(rawSuelo);
   body += ",\"alerta_seco\":" + String(sueloPct < 30 ? "true" : "false");
   body += ",\"latitud\":" + String(lat, 6) + ",\"longitud\":" + String(lon, 6);
-  body += ",\"altitud\":" + String(alt, 2) + ",\"satelites\":" + String(sats) + "}";
+  body += ",\"altitud\":" + String(alt, 2) + ",\"satelites\":" + String(sats);
+  // Salud del nodo: con esto el servidor puede avisar de bateria baja, senal
+  // debil o reinicios en bucle antes de que el nodo se quede mudo.
+  body += ",\"uptime_s\":" + String(millis() / 1000UL);
+  body += ",\"wifi_rssi\":" + String(WiFi.RSSI());
+  body += ",\"heap_libre\":" + String(ESP.getFreeHeap());
+  body += ",\"arranques\":" + String(arranques);
+  body += ",\"pendientes\":" + String(pendientes());
+  const float bateria = leerBateria();
+  if (isfinite(bateria)) body += ",\"bateria_v\":" + String(bateria, 2);
+  body += "}";
   Serial.printf("Lectura real: T=%.2f H=%.2f lux=%.2f (%d%%) suelo=%d%% raw=%d\n",
                 temperatura, humedad, lux, luzPct, sueloPct, rawSuelo);
   if (lecturaId > 0) guardarPendiente(body, (uint32_t)lecturaId);
@@ -375,6 +461,11 @@ void setup() {
   gpsSerial.begin(9600, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
   WiFi.setSleep(false);
   colaNvs.begin("lecturas", false);
+  arranques = colaNvs.getULong("arranques", 0) + 1;
+  colaNvs.putULong("arranques", arranques);
+  detectarPmu();
+  esp_task_wdt_init(WATCHDOG_S, true);
+  esp_task_wdt_add(nullptr);
   calSuelo = leerCalSuelo();
   calLuz = leerCalLuz();
   if (CALIBRAR_SUELO) {
@@ -383,12 +474,14 @@ void setup() {
   }
   conectarWifi();
   ultimoEnvio = millis() - INTERVALO_LECTURA_S * 1000UL;
+  Serial.printf("Arranque #%lu\n", (unsigned long)arranques);
   Serial.printf("Nodo %s listo; envío cada %lu s. Suelo: seco=%u agua=%u | luz: 100%%=%.1f 0%%=%.1f\n",
                 DEVICE_ID, (unsigned long)INTERVALO_LECTURA_S, calSuelo.seco, calSuelo.agua,
                 calLuz.max, calLuz.min);
 }
 
 void loop() {
+  esp_task_wdt_reset();
   if (CALIBRAR_SUELO) {
     modoCalibracion();
     delay(10);

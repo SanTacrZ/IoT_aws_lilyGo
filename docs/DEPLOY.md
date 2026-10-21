@@ -38,8 +38,9 @@ MongoDB queda unicamente como almacenamiento de metadatos del broker.
 | iot-agent | 5000 | `POST /api/plantas`, `POST /api/v1/data`, `GET /api/v1/lecturas`, `GET /api/v1/health` |
 | ai-agent | 5050 | `GET /api/agente/ultimo`, `/historial`, `POST /analizar`, `/health` |
 | frontend | 8080 | dashboard Dash (`/dashboard/`) |
-| grafana | 3000 | tableros (admin/admin) |
-| postgres | 5432 | TimescaleDB (iot / iot-local) |
+| grafana | 127.0.0.1:3000 | tableros (`GF_ADMIN_PASSWORD`) |
+| postgres | interno | TimescaleDB (`iot` / `POSTGRES_PASSWORD`) |
+| alert-agent | — | alertas + bot de Telegram, sin puertos |
 | gateway (perfil tls) | 80/443 | HTTPS con certificado automatico |
 
 ## 2. Puesta en marcha
@@ -95,27 +96,38 @@ Luego `docker compose up -d ai-agent ai-scheduler` (o `bash scripts/deploy.sh`).
 
 ## 4. Seguridad del envio sensor → servidor
 
-Ningun POST se acepta sin firmar. Mismo esquema que el POC de AWS:
+Ningun POST se acepta sin firmar (firma v2):
 
 | Cabecera | Valor |
 |---|---|
-| `X-Api-Key` | `DEVICE_API_KEY` del `.env` |
+| `X-Api-Key` | clave del nodo (`DEVICE_CREDENTIALS`) |
 | `X-Timestamp` | epoch en segundos |
-| `X-Signature` | `HMAC-SHA256(timestamp + "." + body, HMAC_SECRET)` en hex |
+| `X-Firma-Version` | `2` |
+| `X-Signature` | `HMAC-SHA256(timestamp + ".POST." + ruta?query + "." + body, secreto_del_nodo)` en hex |
+
+* **La firma cubre la URL**: con la v1 (solo body) un POST capturado se podia
+  reenviar durante 300 s cambiando `?dispositivo=` o `?lectura_id=`. La v1 se
+  rechaza salvo `FIRMA_V1_PERMITIDA=1` (solo para la transicion del firmware).
+* **Credencial por nodo**: `DEVICE_CREDENTIALS=id:api_key:secreto,...`. Una clave
+  solo publica como su dispositivo (403 si no). Extraer la flash de un nodo ya no
+  permite firmar por los demas. Alta/baja: `python3 scripts/nuevo_nodo.py`.
+* Los GET del dashboard usan `READ_API_KEY`, distinta de las de los nodos.
 
 * **Anti-replay**: si el timestamp se aparta mas de `MAX_SKEW_S` (300 s) se rechaza.
 * **Integridad**: la firma cubre el body, asi que alterarlo rompe la verificacion.
 * **Anti-flood**: `RATE_LIMIT_POR_MIN` (12) POST/min por clave de dispositivo y
   `RATE_LIMIT_IP_POR_MIN` (30) por IP. El límite por IP se aplica **antes** de
   autenticar; si no, bastarían peticiones sin clave para inundar el log.
-* **Clave por dispositivo**: `DEVICE_API_KEYS` acepta una lista de claves separadas
-  por coma. Si un nodo se compromete, el resto sigue operativo.
 * **Idempotencia**: el nodo manda `lectura_id` (epoch en segundos) y el servidor
   deduce de ahí el `time_index`. Un reintento del mismo POST no duplica la fila
   (`UNIQUE` parcial + `ON CONFLICT DO NOTHING`). Un `lectura_id` no numérico se
   rechaza con 400, porque haría la deduplicación inútil en silencio.
-* El firmware LilyGo usa los mismos valores (`DEVICE_API_KEY`, `HMAC_SECRET`)
-  configurados en `src/secrets.h` y en el `.env` del servidor.
+* El firmware LilyGo usa `DEVICE_API_KEY`, `HMAC_SECRET` y `DEVICE_ID_NODO` de
+  `src/secrets.h`, que coinciden con su entrada en `DEVICE_CREDENTIALS`.
+* Con `https://`, define `SERVER_CA_PEM` en `secrets.h` para que el nodo valide
+  el certificado; sin el cifra pero acepta cualquier servidor.
+* Grafana escucha solo en `127.0.0.1:3000`; la contrasena de PostgreSQL y la de
+  Grafana son obligatorias en `.env` (compose no arranca sin ellas).
 * El `iot-agent` corre con **un solo worker**: el limitador vive en memoria del
   proceso, y con varios workers el límite efectivo se multiplica.
 * **Lo que el HMAC no protege**: la confidencialidad. Sin TLS, quien capture el

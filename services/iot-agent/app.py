@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -32,46 +32,102 @@ HMAC_SECRET = os.getenv("HMAC_SECRET", "")
 MAX_SKEW_S = int(os.getenv("MAX_SKEW_S", "300"))                   # ventana anti-replay 5 min
 RATE_LIMIT_POR_MIN = int(os.getenv("RATE_LIMIT_POR_MIN", "12"))    # el firmware envia cada 5 min
 
+
+def leer_credenciales(texto):
+    """DEVICE_CREDENTIALS = "id:api_key:hmac_secret,id2:...". Devuelve {api_key: (id, secreto)}.
+
+    Con credenciales por dispositivo cada clave queda atada a su nodo: robar la
+    flash de uno no permite firmar lecturas a nombre de los demas.
+    """
+    creds = {}
+    for item in texto.split(","):
+        partes = item.strip().split(":")
+        if len(partes) == 3 and all(partes):
+            creds[partes[1]] = (partes[0], partes[2])
+    return creds
+
+
+DEVICE_CREDENTIALS = leer_credenciales(os.getenv("DEVICE_CREDENTIALS", ""))
+# Clave para los GET (dashboard). Separada de las de los nodos: quien lee no firma.
+READ_API_KEY = os.getenv("READ_API_KEY", "")
+# Firma v1 = HMAC(timestamp.body): no cubre la URL, asi que un POST capturado se
+# puede reenviar cambiando ?dispositivo=. Solo para la transicion del firmware viejo.
+FIRMA_V1_PERMITIDA = os.getenv("FIRMA_V1_PERMITIDA", "0") == "1"
+
 _hits = defaultdict(list)
 _hits_lock = threading.Lock()
 
 
+def _coincide(enviada, claves):
+    """compare_digest contra todas: tiempo constante y sin filtrar cual fallo."""
+    hallada = None
+    for k in claves:
+        if hmac.compare_digest(enviada, k):
+            hallada = k
+    return hallada
+
+
 def verificar_api_key():
     """Solo X-Api-Key, para endpoints de lectura (GET), donde no hay body que firmar."""
-    if not DEVICE_API_KEYS:
+    claves = [READ_API_KEY] if READ_API_KEY else DEVICE_API_KEYS + list(DEVICE_CREDENTIALS)
+    if not claves:
         return True, "auth no configurado (abierto)"
-    enviada = request.headers.get("X-Api-Key", "")
-    valida = False
-    for k in DEVICE_API_KEYS:
-        valida |= hmac.compare_digest(enviada, k)
-    if not valida:
+    if _coincide(request.headers.get("X-Api-Key", ""), claves) is None:
         return False, "api-key invalida"
     return True, "ok"
 
 
+def credencial_de(api_key):
+    """(dispositivo, secreto) de la clave o None. dispositivo=None es el modo
+    heredado de clave global, que no ata la clave a ningun nodo."""
+    if DEVICE_CREDENTIALS:
+        k = _coincide(api_key, DEVICE_CREDENTIALS)
+        return DEVICE_CREDENTIALS[k] if k is not None else None
+    if HMAC_SECRET and _coincide(api_key, DEVICE_API_KEYS) is not None:
+        return (None, HMAC_SECRET)
+    return None
+
+
+def recurso_firmado():
+    """Ruta + query tal como llegaron: la firma v2 los cubre."""
+    qs = request.query_string.decode()
+    return request.path + ("?" + qs if qs else "")
+
+
+def mensaje_a_firmar(ts, metodo, recurso, body, version):
+    if version == "2":
+        return f"{ts}.{metodo}.{recurso}.".encode() + body
+    return ts.encode() + b"." + body
+
+
 def verificar_firma(payload: bytes):
-    """API-Key en X-Api-Key + HMAC-SHA256 en X-Signature sobre (timestamp.body)."""
-    if not DEVICE_API_KEYS or not HMAC_SECRET:
-        return False, "auth del servidor no configurado (DEVICE_API_KEYS / HMAC_SECRET)"
-    enviada = request.headers.get("X-Api-Key", "")
-    # compare_digest en bucle: tiempo constante y sin filtrar cual fallo.
-    valida = False
-    for k in DEVICE_API_KEYS:
-        valida |= hmac.compare_digest(enviada, k)
-    if not valida:
-        return False, "api-key invalida"
+    """X-Api-Key + X-Signature = HMAC-SHA256 del mensaje de la version de firma.
+
+    v2: "timestamp.METODO.ruta?query.body" (X-Firma-Version: 2).
+    Devuelve (ok, motivo, dispositivo_atado).
+    """
+    if not DEVICE_CREDENTIALS and not (DEVICE_API_KEYS and HMAC_SECRET):
+        return False, "auth del servidor no configurado (DEVICE_CREDENTIALS)", None
+    cred = credencial_de(request.headers.get("X-Api-Key", ""))
+    if cred is None:
+        return False, "api-key invalida", None
+    dispositivo, secreto = cred
+    version = request.headers.get("X-Firma-Version", "1")
+    if version != "2" and not FIRMA_V1_PERMITIDA:
+        return False, "firma v1 deshabilitada: actualiza el firmware a la firma v2", None
     ts = request.headers.get("X-Timestamp", "")
     sig = request.headers.get("X-Signature", "")
     try:
         skew = abs(time.time() - int(ts))
     except ValueError:
-        return False, "timestamp invalido"
+        return False, "timestamp invalido", None
     if skew > MAX_SKEW_S:
-        return False, f"timestamp expirado ({int(skew)}s, replay?)"
-    esperado = hmac.new(HMAC_SECRET.encode(), ts.encode() + b"." + payload, hashlib.sha256).hexdigest()
+        return False, f"timestamp expirado ({int(skew)}s, replay?)", None
+    mensaje = mensaje_a_firmar(ts, request.method, recurso_firmado(), payload, version)
+    esperado = hmac.new(secreto.encode(), mensaje, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(esperado, sig):
-        return False, "firma HMAC invalida"
-    return True, "ok"
+        return False, "firma HMAC invalida", None
+    return True, "ok", dispositivo
 
 
 def rate_limit_excedido(clave, limite=None):
@@ -100,11 +156,19 @@ def exigir_firma():
     if rate_limit_excedido(f"ip:{request.remote_addr}", RATE_LIMIT_IP_POR_MIN):
         logger.warning("Rate limit por IP excedido (%s)", request.remote_addr)
         return jsonify({"error": f"rate limit: max {RATE_LIMIT_IP_POR_MIN} POST/min por IP"}), 429
-    ok, motivo = verificar_firma(request.get_data())
+    ok, motivo, atado = verificar_firma(request.get_data())
     if not ok:
         logger.warning("Auth rechazado en %s: %s", request.path, motivo)
         return jsonify({"error": motivo}), 401
-    if rate_limit_excedido(f"key:{request.headers.get('X-Api-Key', 'anon')[:8]}"):
+    pedido = request.args.get("dispositivo")
+    if atado and pedido and pedido != atado:
+        logger.warning("Clave de %s usada para publicar como %s", atado, pedido)
+        return jsonify({"error": "la clave no pertenece a ese dispositivo"}), 403
+    g.dispositivo = atado or pedido
+    # Por dispositivo (o por hash de la clave en modo heredado): un prefijo de 8
+    # caracteres podia juntar claves distintas en el mismo contador.
+    clave_rl = atado or hashlib.sha256(request.headers.get("X-Api-Key", "").encode()).hexdigest()[:16]
+    if rate_limit_excedido(f"disp:{clave_rl}"):
         logger.warning("Rate limit por clave excedido")
         return jsonify({"error": f"rate limit: max {RATE_LIMIT_POR_MIN} POST/min"}), 429
     return None
@@ -396,7 +460,7 @@ def receive_planta():
     if faltantes:
         return jsonify({"error": f"Campos faltantes: {', '.join(faltantes)}"}), 400
 
-    dispositivo = request.args.get("dispositivo", "lilygo-tbeam-01")
+    dispositivo = g.dispositivo or "lilygo-tbeam-01"
     entity_id = f"planta:{dispositivo}"
 
     lat = to_float(data["latitud"])
@@ -466,6 +530,8 @@ def receive_data():
         sensor_id = data.get("id")
         if not sensor_id:
             return jsonify({"error": "Missing 'id' field"}), 400
+        if g.dispositivo and sensor_id != g.dispositivo:
+            return jsonify({"error": "la clave no pertenece a ese dispositivo"}), 403
 
         required_fields = ["t", "h", "s", "p"]
         for field in required_fields:
@@ -490,8 +556,9 @@ def receive_data():
             return jsonify({"status": "ok", "entity": entity_id}), 200
         return jsonify({"error": "Failed to update Orion"}), 502
     except Exception as e:
+        # El detalle va al log, no al cliente: la excepcion puede revelar internals.
         logger.exception(f"Error processing data: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "error interno"}), 500
 
 
 @app.route("/api/v1/lecturas", methods=["GET"])
@@ -553,8 +620,10 @@ def health():
             "orion_connected": orion_ok,
             "orion_url": ORION_URL,
             "timescaledb_connected": db_ok,
-            "auth_hmac_activo": bool(DEVICE_API_KEYS and HMAC_SECRET),
-            "claves_autorizadas": len(DEVICE_API_KEYS),
+            "auth_hmac_activo": bool(DEVICE_CREDENTIALS or (DEVICE_API_KEYS and HMAC_SECRET)),
+            "credenciales_por_dispositivo": len(DEVICE_CREDENTIALS),
+            "claves_autorizadas": len(DEVICE_CREDENTIALS) or len(DEVICE_API_KEYS),
+            "firma_v1_permitida": FIRMA_V1_PERMITIDA,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     ), 200
@@ -567,7 +636,8 @@ def index():
             "service": "IoT Agent",
             "version": "2.1.0",
             "endpoints": ["/api/plantas", "/api/v1/data", "/api/v1/lecturas", "/api/v1/health"],
-            "auth": "X-Api-Key + X-Timestamp + X-Signature (HMAC-SHA256 de timestamp.body)",
+            "auth": "X-Api-Key + X-Timestamp + X-Firma-Version: 2 + "
+                    "X-Signature (HMAC-SHA256 de timestamp.METODO.ruta?query.body)",
         }
     )
 

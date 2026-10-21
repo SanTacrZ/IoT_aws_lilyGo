@@ -49,7 +49,8 @@ services:
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-iot}
       - POSTGRES_USER=${POSTGRES_USER:-iot}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-iot-local}
+      # Obligatoria: sin ella compose se niega a arrancar (antes caia en 'iot-local').
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
       - TIMESCALEDB_TELEMETRY=off
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -79,8 +80,12 @@ services:
     environment:
       - ORION_HOST=orion
       - ORION_PORT=1026
-      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - DB_URL=postgresql://${POSTGRES_USER:-iot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-iot}
       - DEVICE_API_KEYS=${DEVICE_API_KEYS}
+      # id:api_key:hmac_secret por nodo; si esta definida, manda sobre las globales.
+      - DEVICE_CREDENTIALS=${DEVICE_CREDENTIALS:-}
+      - READ_API_KEY=${READ_API_KEY:-}
+      - FIRMA_V1_PERMITIDA=${FIRMA_V1_PERMITIDA:-0}
       - RATE_LIMIT_IP_POR_MIN=${RATE_LIMIT_IP_POR_MIN:-30}
       - HMAC_SECRET=${HMAC_SECRET}
       - MAX_SKEW_S=${MAX_SKEW_S:-300}
@@ -103,7 +108,7 @@ services:
       orion:
         condition: service_started
     environment:
-      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - DB_URL=postgresql://${POSTGRES_USER:-iot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-iot}
       - ORION_HOST=orion
       - ORION_PORT=1026
       - AGENT_API_KEY=${AGENT_API_KEY}
@@ -113,6 +118,9 @@ services:
       - GEMINI_REINTENTOS=${GEMINI_REINTENTOS:-2}
       - AGENT_VENTANA_MIN=${AGENT_VENTANA_MIN:-180}
       - AGENT_SILENCIO_MIN=${AGENT_SILENCIO_MIN:-30}
+      - GEMINI_MAX_TOKENS=${GEMINI_MAX_TOKENS:-4096}
+      - FINCA_LAT=${FINCA_LAT:-}
+      - FINCA_LON=${FINCA_LON:-}
     networks:
       - default
     restart: unless-stopped
@@ -135,7 +143,7 @@ services:
       ai-agent:
         condition: service_started
     environment:
-      - DB_URL=${DB_URL:-postgresql://iot:iot-local@postgres:5432/iot}
+      - DB_URL=postgresql://${POSTGRES_USER:-iot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-iot}
       - ORION_HOST=orion
       - ORION_PORT=1026
       - AGENT_API_KEY=${AGENT_API_KEY}
@@ -146,6 +154,9 @@ services:
       - AGENT_INTERVAL_MIN=${AGENT_INTERVAL_MIN:-15}
       - AGENT_VENTANA_MIN=${AGENT_VENTANA_MIN:-180}
       - AGENT_SILENCIO_MIN=${AGENT_SILENCIO_MIN:-30}
+      - GEMINI_MAX_TOKENS=${GEMINI_MAX_TOKENS:-4096}
+      - FINCA_LAT=${FINCA_LAT:-}
+      - FINCA_LON=${FINCA_LON:-}
     networks:
       - default
     restart: unless-stopped
@@ -190,16 +201,57 @@ services:
       - PG_PORT=5432
       - PG_DB=${POSTGRES_DB:-iot}
       - PG_USER=${POSTGRES_USER:-iot}
-      - PG_PASSWORD=${POSTGRES_PASSWORD:-iot-local}
+      - PG_PASSWORD=${POSTGRES_PASSWORD}
       - AI_AGENT_HOST=${AI_AGENT_HOST:-ai-agent}
       - AI_AGENT_PORT=${AI_AGENT_PORT:-5050}
       - WEB_USER=${WEB_USER:-admin}
       - WEB_PASSWORD=${WEB_PASSWORD}
+      - WEB_SESSION_SECRET=${WEB_SESSION_SECRET:-}
+      - READ_API_KEY=${READ_API_KEY:-}
       - DEVICE_API_KEY=${DEVICE_API_KEY}
       - IOT_AGENT_HOST=${IOT_AGENT_HOST:-iot-agent}
       - IOT_AGENT_PORT=${IOT_AGENT_PORT:-5000}
       - ORION_HOST=orion
       - ORION_PORT=1026
+    networks:
+      - default
+    restart: unless-stopped
+
+  # Alertas con estado + bot de Telegram. Sin puertos: solo conexiones salientes
+  # (Telegram/WhatsApp/Twilio) y la BD interna.
+  alert-agent:
+    build: ./services/alert-agent
+    image: alert-agent:${APP_VERSION:-dev}
+    container_name: alert-agent
+    hostname: alert-agent
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgresql://${POSTGRES_USER:-iot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-iot}
+      - TZ_FINCA=${TZ_FINCA:-America/Bogota}
+      - ALERT_INTERVALO_S=${ALERT_INTERVALO_S:-60}
+      - ALERT_RECORDATORIO_MIN=${ALERT_RECORDATORIO_MIN:-60}
+      - ALERT_ESCALAR_MIN=${ALERT_ESCALAR_MIN:-10}
+      - ALERT_NODO_CAIDO_MIN=${ALERT_NODO_CAIDO_MIN:-15}
+      - ALERT_SUELO_MIN=${ALERT_SUELO_MIN:-30}
+      - ALERT_TEMP_MAX=${ALERT_TEMP_MAX:-35}
+      - ALERT_TEMP_MIN=${ALERT_TEMP_MIN:-5}
+      - ALERT_BATERIA_MIN=${ALERT_BATERIA_MIN:-3.4}
+      - ALERT_RSSI_MIN=${ALERT_RSSI_MIN:--85}
+      - ALERT_IGNORAR=${ALERT_IGNORAR:-sim-*,prueba-*}
+      - ALERT_CANALES_AVISO=${ALERT_CANALES_AVISO:-telegram,whatsapp}
+      - ALERT_CANALES_ESCALADO=${ALERT_CANALES_ESCALADO:-sms}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_IDS=${TELEGRAM_CHAT_IDS:-}
+      - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
+      - WHATSAPP_TOKEN=${WHATSAPP_TOKEN:-}
+      - WHATSAPP_PHONE_ID=${WHATSAPP_PHONE_ID:-}
+      - WHATSAPP_TO=${WHATSAPP_TO:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_FROM=${TWILIO_FROM:-}
+      - SMS_TO=${SMS_TO:-}
     networks:
       - default
     restart: unless-stopped
@@ -210,11 +262,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Solo local: con admin/admin en 0.0.0.0 cualquiera en la red leia toda la BD
+    # a traves del datasource. Desde fuera: tunel SSH (ssh -L 3000:localhost:3000).
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:-admin}
+      # Solo aplica al crear el volumen; para cambiarla despues:
+      #   docker exec grafana grafana cli admin reset-admin-password <nueva>
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:?define GF_ADMIN_PASSWORD en .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      # La lee el datasource provisionado (grafana/provisioning/datasources).
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning

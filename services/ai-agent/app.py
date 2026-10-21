@@ -23,8 +23,6 @@ import re
 import time
 from datetime import datetime, timezone
 
-import hmac
-
 import psycopg2
 import psycopg2.extras
 import requests
@@ -48,6 +46,12 @@ GEMINI_REINTENTOS = int(os.getenv("GEMINI_REINTENTOS", "2"))
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 VENTANA_MIN = int(os.getenv("AGENT_VENTANA_MIN", "180"))
 SILENCIO_MIN = int(os.getenv("AGENT_SILENCIO_MIN", "30"))
+# Los modelos "thinking" gastan tokens razonando antes de responder: con 600 el
+# JSON llegaba cortado ("Gemini no devolvio JSON: {"estado":"ok","diagnostico":"La").
+MAX_TOKENS = int(os.getenv("GEMINI_MAX_TOKENS", "4096"))
+# Ubicacion de respaldo para el pronostico si el nodo aun no tiene fix de GPS.
+FINCA_LAT = os.getenv("FINCA_LAT", "")
+FINCA_LON = os.getenv("FINCA_LON", "")
 
 ESTADOS = ("ok", "atencion", "critico", "error")
 
@@ -65,7 +69,9 @@ JSON con estas claves exactas:
   "confianza": 0.0 - 1.0
 }
 Reglas: no inventes valores que no esten en el resumen; si falta un sensor, dilo;
-si todo esta dentro de rango, estado = "ok" y la accion debe ser de mantenimiento."""
+si todo esta dentro de rango, estado = "ok" y la accion debe ser de mantenimiento.
+Si el resumen trae "pronostico" y se espera lluvia suficiente, recomienda esperarla
+antes de regar (salvo que el suelo este critico)."""
 
 SCHEMA_JSON = {
     "type": "object",
@@ -162,6 +168,64 @@ def resumir_cultivo(entidad=None, minutos=VENTANA_MIN):
             "alerta_seco_disparada": bool(hubo_alerta),
             "gps": {"ok": bool(gps_ok), "satelites": int(sats or 0), "altitud_m": _num(alt)},
         }
+
+
+def ubicacion_finca():
+    """Ultima posicion GPS valida de cualquier nodo; si no hay, FINCA_LAT/LON."""
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT latitud, longitud FROM lecturas_planta
+                WHERE satelites > 0 AND latitud <> 0 AND longitud <> 0
+                ORDER BY time_index DESC LIMIT 1""")
+            fila = cur.fetchone()
+        if fila:
+            return float(fila[0]), float(fila[1])
+    except psycopg2.Error as e:
+        logger.warning("No se pudo leer la ubicacion GPS: %s", e)
+    if FINCA_LAT and FINCA_LON:
+        return float(FINCA_LAT), float(FINCA_LON)
+    return None
+
+
+def pronostico(ubicacion):
+    """Lluvia y temperatura de las proximas 24 h (Open-Meteo: gratis, sin API key).
+
+    Si falla devuelve None y el analisis sigue sin pronostico: el clima es un
+    dato de apoyo, no puede tumbar la vigilancia del cultivo.
+    """
+    if not ubicacion:
+        return None
+    try:
+        r = requests.get("https://api.open-meteo.com/v1/forecast", params={
+            "latitude": round(ubicacion[0], 3), "longitude": round(ubicacion[1], 3),
+            "hourly": "precipitation,precipitation_probability,temperature_2m",
+            "forecast_hours": 24, "timezone": "auto"}, timeout=8)
+        r.raise_for_status()
+        h = r.json()["hourly"]
+        lluvia = [x or 0 for x in h["precipitation"]]
+        prob = [x or 0 for x in h["precipitation_probability"]]
+        temp = [x for x in h["temperature_2m"] if x is not None]
+        return {
+            "lluvia_24h_mm": round(sum(lluvia), 1),
+            "prob_lluvia_max_pct": max(prob) if prob else None,
+            "temp_max_24h_c": max(temp) if temp else None,
+            "temp_min_24h_c": min(temp) if temp else None,
+        }
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.warning("Pronostico no disponible: %s", e)
+        return None
+
+
+def entidades_activas(minutos=VENTANA_MIN):
+    """Entidades con lecturas en la ventana: el scheduler analiza cada zona por
+    separado para que una zona seca no quede escondida en el promedio."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT entity_id FROM lecturas_planta
+               WHERE time_index >= NOW() - (%s || ' minutes')::interval ORDER BY 1""",
+            (minutos,))
+        return [r[0] for r in cur.fetchall()]
 
 
 def guardar_analisis(entidad, estado, diagnostico, accion, confianza, modelo, contexto, latencia_ms, error=None):
@@ -315,7 +379,7 @@ def pedir_dictamen_a_gemini(contexto):
         }],
         "generationConfig": {
             "temperature": 0.2,
-            "maxOutputTokens": 600,
+            "maxOutputTokens": MAX_TOKENS,
             "responseMimeType": "application/json",
             "responseSchema": SCHEMA_JSON,
         },
@@ -375,6 +439,12 @@ def reglas_locales(contexto):
                 "diagnostico": f"Suelo seco: {suelo}% en la ultima lectura (umbral 30%).",
                 "accion_recomendada": "Regar la planta hoy mismo.",
                 "confianza": 0.9}
+    lluvia = (contexto.get("pronostico") or {}).get("lluvia_24h_mm") or 0
+    if suelo is not None and suelo < 45 and lluvia >= 5:
+        return {"estado": "atencion",
+                "diagnostico": f"Humedad de suelo en {suelo}%, pero se esperan {lluvia} mm de lluvia en 24 h.",
+                "accion_recomendada": "Esperar la lluvia antes de regar y volver a revisar.",
+                "confianza": 0.7}
     if suelo is not None and suelo < 45:
         return {"estado": "atencion",
                 "diagnostico": f"Humedad de suelo en {suelo}%, por debajo del ideal (>45%).",
@@ -398,6 +468,10 @@ def analizar(entidad=None, motivo="programado"):
                          "Revisar alimentacion/Wi-Fi del nodo.", 0.0, None, {}, None,
                          error="sin_lecturas")
         return ultimo_analisis()
+
+    clima = pronostico(ubicacion_finca())
+    if clima:
+        contexto["pronostico"] = clima
 
     error_ia = None
     if not GEMINI_API_KEY:

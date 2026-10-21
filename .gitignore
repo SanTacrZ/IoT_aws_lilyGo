@@ -19,3 +19,5 @@ secrets.h
 *.log
 .DS_Store
 .vscode/
+.pytest_cache/
+.env.bak*

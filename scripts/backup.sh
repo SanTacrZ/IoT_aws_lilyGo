@@ -43,6 +43,8 @@ volcar() {
 log "Volcando datos de PostgreSQL/TimescaleDB"
 volcar lecturas time_index
 volcar analisis_ia id
+volcar alertas id
+volcar notificaciones id
 
 log "Esquema (referencia) -> $DEST/esquema.sql.gz"
 docker exec db-postgres pg_dump -U "$USER" -d "$DB" --schema-only --no-owner \
@@ -61,7 +63,7 @@ backup      : $TS
 host        : $(hostname)
 compose     : $(docker compose ps --format '{{.Name}} {{.Image}} {{.Status}}' | tr '\n' '; ')
 postgres    : ${POSTGRES_DB:-$DB}
-contenido   : lecturas.csv.gz, analisis_ia.csv.gz, esquema.sql.gz, mongo.bson.gz
+contenido   : lecturas.csv.gz, analisis_ia.csv.gz, alertas.csv.gz, notificaciones.csv.gz, esquema.sql.gz, mongo.bson.gz
 restaurar   : bash scripts/restore.sh $DEST
 EOF
 

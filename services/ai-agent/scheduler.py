@@ -9,7 +9,7 @@ import signal
 import sys
 import time
 
-from app import analizar
+from app import analizar, entidades_activas
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("agente-scheduler")
@@ -39,7 +39,7 @@ def main():
     signal.signal(signal.SIGTERM, parar)
     signal.signal(signal.SIGINT, parar)
 
-    logger.info("Scheduler arrancado: cada %d min, entidad=%s", INTERVALO_MIN, ENTIDAD or "todas")
+    logger.info("Scheduler arrancado: cada %d min, entidad=%s", INTERVALO_MIN, ENTIDAD or "cada zona activa")
     latido()
 
     # Primer analisis apenas arranca (con pequeno retardo para que la BD este lista).
@@ -47,7 +47,11 @@ def main():
     while _corriendo:
         inicio = time.time()
         try:
-            analizar(ENTIDAD, motivo="scheduler")
+            # Una zona por analisis. Sin lecturas recientes, un unico analisis
+            # global deja registrado "sin_lecturas".
+            for entidad in ([ENTIDAD] if ENTIDAD else entidades_activas() or [None]):
+                analizar(entidad, motivo="scheduler")
+                latido()
         except Exception:
             logger.exception("Fallo el ciclo de analisis")
         latido()

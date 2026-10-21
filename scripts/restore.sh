@@ -18,12 +18,14 @@ log() { echo -e "\n\033[1;34m==> $*\033[0m"; }
 ok()  { echo -e "\033[1;32m  OK $*\033[0m"; }
 
 log "1/6 Parando lo que escribe en la base de datos"
-docker compose stop ai-scheduler ai-agent iot-agent frontend
+docker compose stop ai-scheduler ai-agent alert-agent iot-agent frontend
 
 log "2/6 Borrando los datos actuales (solo objetos de la app)"
 docker exec -i db-postgres psql -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 <<'SQL'
 DROP MATERIALIZED VIEW IF EXISTS lecturas_planta_1min CASCADE;
 DROP VIEW IF EXISTS lecturas_planta;
+DROP TABLE IF EXISTS notificaciones;
+DROP TABLE IF EXISTS alertas;
 DROP TABLE IF EXISTS analisis_ia;
 DROP TABLE IF EXISTS lecturas;
 SQL
@@ -45,11 +47,21 @@ if [[ -f "$SRC/analisis_ia.csv.gz" ]]; then
     "SELECT setval(pg_get_serial_sequence('analisis_ia','id'), GREATEST((SELECT COALESCE(MAX(id),1) FROM analisis_ia), 1))"
 fi
 
+# Alertas y su bitacora (backups anteriores a 004_alertas no las traen).
+for tabla in alertas notificaciones; do
+  if [[ -s "$SRC/$tabla.csv.gz" ]]; then
+    gunzip -c "$SRC/$tabla.csv.gz" | docker exec -i db-postgres psql -U "$USER" -d "$DB" -q -v ON_ERROR_STOP=1 \
+      -c "\copy $tabla FROM STDIN WITH (FORMAT csv)"
+    docker exec db-postgres psql -U "$USER" -d "$DB" -q -c \
+      "SELECT setval(pg_get_serial_sequence('$tabla','id'), GREATEST((SELECT COALESCE(MAX(id),1) FROM $tabla), 1))"
+  fi
+done
+
 docker exec db-postgres psql -U "$USER" -d "$DB" -t -c \
   "SELECT '  lecturas=' || count(*) FROM lecturas;" -c "SELECT '  analisis_ia=' || count(*) FROM analisis_ia;"
 
 log "6/6 Levantando los servicios de la aplicacion"
-docker compose up -d ai-agent ai-scheduler iot-agent frontend
+docker compose up -d ai-agent ai-scheduler alert-agent iot-agent frontend
 
 echo -e "\n\033[1;32m  Restaurado desde $SRC\033[0m"
 docker compose ps --format 'table {{.Name}}\t{{.Status}}'
