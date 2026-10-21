@@ -16,7 +16,12 @@
 // Cambia DEVICE_ID para cada unidad; no compartas el mismo ID entre nodos.
 // URL_SERVIDOR es la IP de la maquina que corre los contenedores; en UPBWiFi
 // la IP sale por DHCP, asi que revisa con "ip -4 addr" si cambia.
-static const char* URL_SERVIDOR = "http://18.208.188.77:5000/api/plantas";
+// El servidor por defecto es el local; define URL_SERVIDOR_NODO en secrets.h
+// para apuntar a otro (AWS, dominio con https://...).
+#ifndef URL_SERVIDOR_NODO
+#define URL_SERVIDOR_NODO "http://10.8.69.125:5000/api/plantas"
+#endif
+static const char* URL_SERVIDOR = URL_SERVIDOR_NODO;
 // scripts/nuevo_nodo.py genera un secrets.h con DEVICE_ID_NODO para cada placa.
 #ifndef DEVICE_ID_NODO
 #define DEVICE_ID_NODO "lilygo-tbeam-01"
