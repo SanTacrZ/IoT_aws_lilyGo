@@ -4,7 +4,6 @@
 #include <WiFiClientSecure.h>
 #include <Preferences.h>
 #include <Wire.h>
-#include <AP3216_WE.h>
 #include <TinyGPS++.h>
 #include <mbedtls/md.h>
 #include <time.h>
@@ -45,24 +44,30 @@ static constexpr int REG_AP3216_ALS = 0x0C;  // 0x0C/0x0D guardan el dato ALS
 static constexpr float AP3216_LUX_POR_CUENTA = 0.35f;  // factor del rango RANGE_20661
 static constexpr int PIN_PMU = 0x34;         // AXP192 (T-Beam v1.0/1.1) o AXP2101 (v1.2)
 
-AP3216_WE sensorLuz(&Wire);
 
 // --- Sensor de luz ----------------------------------------------------------
-// La libreria AP3216_WE no comprueba el resultado de las transacciones de Wire:
-// si el bus falla, readReg() devuelve 0 y getAmbientLight() reporta "0 lux", que
-// es indistinguible de tener el sensor en oscuridad. Aqui cada transaccion se
-// verifica y se reintenta, para que un sensor que no responde se note como tal
-// y no como una medida valida.
-// El init() de la libreria hace el reset por software y acto seguido escribe
-// el modo y el rango, sin esperar los 10 ms que pide el datasheet (rev 0.86,
-// "For SW reset"). Ahi se queda el ALS descolocado y devuelve 0. Ademas se
-// activa solo el ALS: el modo ALS+PS enciende el LED de proximidad cada 112.5
-// ms y aqui no se usa el sensor de distancia para nada.
+// Se maneja por registros, sin libreria. La AP3216_WE no comprobaba las
+// transacciones de Wire (un bus caido salia como "0 lux", igual que la
+// oscuridad) y su init() escribia el modo y el rango justo despues del reset,
+// sin los 10 ms que pide el datasheet (rev 0.86, "For SW reset"): ahi el ALS
+// quedaba descolocado y devolvia 0. Aqui cada lectura se verifica y reintenta,
+// y solo se activa el ALS: el modo ALS+PS enciende el LED de proximidad cada
+// 112.5 ms y el sensor de distancia no se usa.
+// Registro 0x00 (System Configuration): 0x04 = SW reset, 0x01 = solo ALS.
+// Registro 0x10 (ALS Configuration), bits 5:4 = 00 -> Range 1 (20661 lux).
+void escribirAp3216(uint8_t reg, uint8_t valor) {
+  Wire.beginTransmission(PIN_AP3216);
+  Wire.write(reg);
+  Wire.write(valor);
+  Wire.endTransmission();
+}
+
 void reiniciarLuz() {
-  sensorLuz.init();
-  sensorLuz.setMode(AP3216_ALS);
-  sensorLuz.setLuxRange(RANGE_20661);
-  delay(250);  // 10 ms del reset + una conversion completa (~100 ms)
+  escribirAp3216(0x00, 0x04);  // SW reset
+  delay(15);                   // datasheet: esperar 10 ms antes de configurar
+  escribirAp3216(0x00, 0x01);  // modo ALS
+  escribirAp3216(0x10, 0x00);  // Range 1: 0-20661 lux, 0.35 lux/cuenta
+  delay(150);                  // una conversion ALS completa (~100 ms)
 }
 
 bool leerAp3216(int reg, uint8_t* dest, uint8_t n) {
@@ -124,15 +129,23 @@ bool pmuEscribir(uint8_t reg, uint8_t v) {
   return Wire.endTransmission() == 0;
 }
 
+// El GPS del T-Beam se alimenta desde una salida del PMU: LDO3 en el AXP192 y
+// ALDO3 en el AXP2101. Sin encenderla el modulo no recibe energia y nunca da
+// fix (los ejemplos de LilyGO la activan siempre). Se fija a 3.3 V, la tension
+// de alimentacion del modulo u-blox.
 void detectarPmu() {
   uint8_t id = 0, r = 0;
   if (!pmuLeer(0x03, &id)) return;
-  if (id == 0x4A) {                                    // AXP2101: habilita el ADC de VBAT
+  if (id == 0x4A) {                                    // AXP2101
     pmu = Pmu::AXP2101;
-    if (pmuLeer(0x30, &r)) pmuEscribir(0x30, r | 0x01);
-  } else if (id == 0x03) {                             // AXP192: ADC de voltaje de bateria
+    if (pmuLeer(0x30, &r)) pmuEscribir(0x30, r | 0x01);       // ADC de VBAT
+    if (pmuLeer(0x94, &r)) pmuEscribir(0x94, (r & 0xE0) | 28); // ALDO3 = 0.5 V + 28 x 0.1 V = 3.3 V
+    if (pmuLeer(0x90, &r)) pmuEscribir(0x90, r | 0x04);       // ALDO3 on
+  } else if (id == 0x03) {                             // AXP192
     pmu = Pmu::AXP192;
-    if (pmuLeer(0x82, &r)) pmuEscribir(0x82, r | 0x80);
+    if (pmuLeer(0x82, &r)) pmuEscribir(0x82, r | 0x80);       // ADC de VBAT
+    if (pmuLeer(0x28, &r)) pmuEscribir(0x28, (r & 0xF0) | 15); // LDO3 = 1.8 V + 15 x 0.1 V = 3.3 V
+    if (pmuLeer(0x12, &r)) pmuEscribir(0x12, r | 0x08);       // LDO3 on
   }
   Serial.printf("PMU: %s\n", pmu == Pmu::AXP2101 ? "AXP2101" : pmu == Pmu::AXP192 ? "AXP192" : "desconocido");
 }
@@ -157,6 +170,17 @@ uint32_t arranques = 0;
 Preferences colaNvs;
 static constexpr uint8_t MAX_PENDIENTES = 8;
 static constexpr uint8_t MUESTRAS_SUELO = 16;
+
+// --- Rangos de medida (datasheets) ---------------------------------------------
+// Un valor fuera de estos limites no es una medida: es un fallo de bus, de
+// cableado o de conversion. Se descarta en lugar de publicarse.
+//   HDC1080 (TI SNAS672): -40..125 °C, 0..100 %RH
+//   AP3216C Range 1: 0..20661 lux
+static constexpr float TEMP_MIN_C = -40.0f, TEMP_MAX_C = 125.0f;
+static constexpr float HR_MIN = 0.0f, HR_MAX = 100.0f;
+static constexpr float LUX_MAX = 20661.0f;
+
+bool enRango(float v, float lo, float hi) { return isfinite(v) && v >= lo && v <= hi; }
 
 // --- Calibracion del sensor de suelo ----------------------------------------
 // Los extremos medidos se guardan en NVS para poder reajustar desde el monitor
@@ -281,9 +305,27 @@ void modoCalibracion() {
   if (millis() - ultimo < 500) return;
   ultimo = millis();
   const uint16_t raw = leerRawSuelo();
-  Serial.printf("raw=%u (%.2f V)  pct=%d%%  [seco=%u agua=%u]%s\n", raw,
-                raw * 3.3f / 4095.0f, pctDesdeRaw(raw, calSuelo), calSuelo.seco, calSuelo.agua,
+  // analogReadMilliVolts usa la calibracion de fabrica (eFuse); raw*3.3/4095
+  // ignora la no linealidad del ADC del ESP32, que con 11 dB es fuerte por
+  // encima de ~2.45 V (Espressif, ADC: rango recomendado 150-2450 mV).
+  Serial.printf("raw=%u (%u mV)  pct=%d%%  [seco=%u agua=%u]%s\n", raw,
+                (unsigned)analogReadMilliVolts(PIN_SUELO), pctDesdeRaw(raw, calSuelo), calSuelo.seco, calSuelo.agua,
                 rangoCalibrado(raw, calSuelo) ? "" : "  <-- FUERA DE RANGO: revisa VCC/AO/sonda");
+}
+
+// HDC1080: Manufacturer ID (0xFE) = 0x5449 "TI" y Device ID (0xFF) = 0x1050.
+// Si otro chip responde en 0x40 se notaria aqui y no como lecturas absurdas.
+bool hdcPresente() {
+  auto leer16 = [](uint8_t reg, uint16_t* v) {
+    Wire.beginTransmission(PIN_HDC1080);
+    Wire.write(reg);
+    if (Wire.endTransmission() != 0) return false;
+    if (Wire.requestFrom(PIN_HDC1080, 2) != 2) return false;
+    *v = (uint16_t(Wire.read()) << 8) | Wire.read();
+    return true;
+  };
+  uint16_t fab = 0, disp = 0;
+  return leer16(0xFE, &fab) && leer16(0xFF, &disp) && fab == 0x5449 && disp == 0x1050;
 }
 
 float leerHDC(uint8_t registro, float escala, float offset) {
@@ -425,8 +467,10 @@ void tomarYEnviar() {
   const int sats = gps.satellites.isValid() ? gps.satellites.value() : 0;
 
   // No se inventan lecturas si falla un sensor esencial: se registra y se omite el envío.
-  if (!isfinite(temperatura) || !isfinite(humedad) || !isfinite(lux)) {
-    Serial.println("Lectura omitida: error de sensor ambiental; no se envían ceros.");
+  if (!enRango(temperatura, TEMP_MIN_C, TEMP_MAX_C) || !enRango(humedad, HR_MIN, HR_MAX) ||
+      !enRango(lux, 0.0f, LUX_MAX)) {
+    Serial.printf("Lectura omitida: fuera del rango del datasheet (T=%.2f H=%.2f lux=%.2f).\n",
+                  temperatura, humedad, lux);
     return;
   }
   const uint64_t lecturaId = (uint64_t)time(nullptr);
@@ -452,6 +496,9 @@ void tomarYEnviar() {
   body += "}";
   Serial.printf("Lectura real: T=%.2f H=%.2f lux=%.2f (%d%%) suelo=%d%% raw=%d\n",
                 temperatura, humedad, lux, luzPct, sueloPct, rawSuelo);
+  // charsProcessed=0: el GPS no envia nada (sin energia o pines). >0 sin fix: falta cielo abierto.
+  Serial.printf("GPS: %lu caracteres NMEA, %d satelites, fix=%s\n",
+                (unsigned long)gps.charsProcessed(), sats, gpsValido ? "si" : "no");
   if (lecturaId > 0) guardarPendiente(body, (uint32_t)lecturaId);
   enviarPendientes();
 }
@@ -469,6 +516,7 @@ void setup() {
   arranques = colaNvs.getULong("arranques", 0) + 1;
   colaNvs.putULong("arranques", arranques);
   detectarPmu();
+  if (!hdcPresente()) Serial.println("AVISO: HDC1080 no responde con su ID (0x5449/0x1050) en 0x40.");
   esp_task_wdt_init(WATCHDOG_S, true);
   esp_task_wdt_add(nullptr);
   calSuelo = leerCalSuelo();

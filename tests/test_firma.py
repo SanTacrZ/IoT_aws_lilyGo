@@ -85,3 +85,20 @@ def test_get_con_clave_de_lectura(agente, monkeypatch):
     assert c.get("/api/nodos", headers={"X-Api-Key": "clave-lectura"}).status_code == 200
     # Una clave de nodo no sirve para leer cuando hay READ_API_KEY.
     assert c.get("/api/nodos", headers={"X-Api-Key": "clave-zona-1"}).status_code == 401
+
+
+@pytest.mark.parametrize("campo,valor", [
+    ("temperatura_aire", 130), ("humedad_aire", -1), ("luz_lux", 25000),
+    ("humedad_suelo_raw", 5000), ("latitud", 91), ("bateria_v", 6.0), ("humedad_suelo_pct", "seco"),
+])
+def test_valores_fuera_del_datasheet_se_rechazan(agente, campo, valor):
+    body = json.dumps(dict(LECTURA, **{campo: valor})).encode()
+    r = post(agente.app.test_client(), "zona-1", "/api/plantas", body=body)
+    assert r.status_code == 422 and campo in r.json["campos"]
+    assert agente.guardadas == []
+
+
+def test_limites_exactos_del_datasheet_se_aceptan(agente):
+    body = json.dumps(dict(LECTURA, temperatura_aire=-40, humedad_aire=100, luz_lux=20661,
+                           humedad_suelo_raw=4095, bateria_v=4.2)).encode()
+    assert post(agente.app.test_client(), "zona-1", "/api/plantas", body=body).status_code == 200

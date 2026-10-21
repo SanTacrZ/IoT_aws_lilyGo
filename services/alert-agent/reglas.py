@@ -20,6 +20,9 @@ class Umbrales:
     nodo_caido_min: float = 15
     suelo_min: float = 30
     suelo_histeresis: float = 5
+    suelo_max: float = 90
+    hr_min: float = 30
+    hr_max: float = 90
     temp_max: float = 35
     temp_min: float = 5
     bateria_min: float = 3.4
@@ -32,6 +35,9 @@ class Umbrales:
             nodo_caido_min=_env_float("ALERT_NODO_CAIDO_MIN", 15),
             suelo_min=_env_float("ALERT_SUELO_MIN", 30),
             suelo_histeresis=_env_float("ALERT_SUELO_HISTERESIS", 5),
+            suelo_max=_env_float("ALERT_SUELO_MAX", 90),
+            hr_min=_env_float("ALERT_HR_MIN", 30),
+            hr_max=_env_float("ALERT_HR_MAX", 90),
             temp_max=_env_float("ALERT_TEMP_MAX", 35),
             temp_min=_env_float("ALERT_TEMP_MIN", 5),
             bateria_min=_env_float("ALERT_BATERIA_MIN", 3.4),
@@ -126,6 +132,24 @@ def evaluar(nodos, analisis, u: Umbrales, abiertas=frozenset()):
             ev.agregar(Condicion(clave, "suelo_seco", disp, "critico", "Suelo seco",
                                  f"Humedad del suelo {suelo:.0f}% (umbral {u.suelo_min:.0f}%).",
                                  "Regar la zona hoy.", suelo))
+
+        clave = f"suelo_saturado:{disp}"
+        if _por_encima(suelo, u.suelo_max, u.suelo_histeresis, clave in abiertas):
+            ev.agregar(Condicion(clave, "suelo_saturado", disp, "atencion", "Suelo encharcado",
+                                 f"Humedad del suelo {suelo:.0f}% (maximo {u.suelo_max:.0f}%).",
+                                 "Suspender el riego y revisar el drenaje.", suelo))
+
+        hr = _num(p.get("humedad_aire"))
+        clave = f"hr_alta:{disp}"
+        if _por_encima(hr, u.hr_max, 3, clave in abiertas):
+            ev.agregar(Condicion(clave, "hr_alta", disp, "atencion", "Humedad del aire alta",
+                                 f"Aire al {hr:.0f}% HR (maximo {u.hr_max:.0f}%).",
+                                 "Riesgo de hongos: ventilar y no mojar el follaje.", hr))
+        clave = f"hr_baja:{disp}"
+        if _por_debajo(hr, u.hr_min, 3, clave in abiertas):
+            ev.agregar(Condicion(clave, "hr_baja", disp, "atencion", "Humedad del aire baja",
+                                 f"Aire al {hr:.0f}% HR (minimo {u.hr_min:.0f}%).",
+                                 "Estres por transpiracion: revisar sombra y riego.", hr))
 
         temp = _num(p.get("temperatura_aire"))
         clave = f"temp_alta:{disp}"

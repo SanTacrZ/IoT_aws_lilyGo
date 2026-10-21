@@ -58,6 +58,13 @@ def test_bateria_temperatura_y_senal():
     assert all(c.severidad == "atencion" for c in ev.condiciones.values())
 
 
+def test_maximos_de_suelo_y_humedad_del_aire():
+    ev = evaluar([nodo("zona-1", humedad_suelo_pct=95, humedad_aire=93)], [], U)
+    assert claves(ev) == {"suelo_saturado:zona-1", "hr_alta:zona-1"}
+    ev = evaluar([nodo("zona-1", humedad_aire=25)], [], U)
+    assert claves(ev) == {"hr_baja:zona-1"}
+
+
 def test_sin_dato_de_bateria_no_alerta():
     assert claves(evaluar([nodo("zona-1")], [], U)) == set()
 

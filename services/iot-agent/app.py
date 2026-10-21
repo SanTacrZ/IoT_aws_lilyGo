@@ -191,6 +191,44 @@ CAMPOS_PLANTA = [
 ]
 
 
+# Rango fisico de cada dato segun el datasheet de su sensor (docs/SENSORES.md).
+# Fuera de el no es una medida sino un fallo o una manipulacion: se rechaza.
+RANGOS = {
+    "temperatura_aire": (-40, 125),      # HDC1080
+    "humedad_aire": (0, 100),            # HDC1080
+    "luz_lux": (0, 20661),               # AP3216C, Range 1
+    "luz_pct": (0, 100),
+    "humedad_suelo_pct": (0, 100),
+    "humedad_suelo_raw": (0, 4095),      # ADC de 12 bits del ESP32
+    "latitud": (-90, 90),
+    "longitud": (-180, 180),
+    "altitud": (-500, 50000),            # u-blox: limite operativo 50 000 m
+    "satelites": (0, 50),
+    "bateria_v": (2.5, 4.5),             # celda Li-ion via AXP192/AXP2101
+    "wifi_rssi": (-120, 0),
+    "heap_libre": (0, 524288),           # 520 KB de SRAM del ESP32
+    "uptime_s": (0, 10**9),
+    "arranques": (0, 10**9),
+    "pendientes": (0, 8),                # MAX_PENDIENTES del firmware
+}
+
+
+def fuera_de_rango(data):
+    """Campos con valor no numerico o fuera de RANGOS: [(campo, valor, lo, hi)]."""
+    malos = []
+    for campo, (lo, hi) in RANGOS.items():
+        if campo not in data:
+            continue
+        v = data[campo]
+        try:
+            ok = not isinstance(v, bool) and lo <= float(v) <= hi
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            malos.append((campo, v, lo, hi))
+    return malos
+
+
 def to_float(value, default=0.0):
     try:
         return float(value)
@@ -459,6 +497,12 @@ def receive_planta():
     faltantes = [c for c in CAMPOS_PLANTA if c not in data]
     if faltantes:
         return jsonify({"error": f"Campos faltantes: {', '.join(faltantes)}"}), 400
+
+    malos = fuera_de_rango(data)
+    if malos:
+        logger.warning("Lectura rechazada de %s: %s", g.dispositivo, malos)
+        return jsonify({"error": "valores fuera del rango del sensor",
+                        "campos": {c: f"{v!r} no esta en [{lo}, {hi}]" for c, v, lo, hi in malos}}), 422
 
     dispositivo = g.dispositivo or "lilygo-tbeam-01"
     entity_id = f"planta:{dispositivo}"
