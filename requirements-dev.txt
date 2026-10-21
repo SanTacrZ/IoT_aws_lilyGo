@@ -1,0 +1,9 @@
+# Herramientas de desarrollo (no van a los contenedores):
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+pytest==8.*
+ruff==0.6.*
+flask==3.0.*
+requests==2.31.*
+psycopg2-binary==2.9.*
+dash==2.17.*
+pandas==2.2.*

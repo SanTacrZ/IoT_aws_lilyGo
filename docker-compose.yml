@@ -1,6 +1,10 @@
 services:
   orion:
-    image: fiware/orion-ld
+    # Imagenes de terceros fijadas por digest: "latest" puede cambiar de version
+    # mayor en cualquier pull y romper el stack sin tocar una linea. Para actualizar,
+    # cambia el digest a proposito y corre scripts/verificar.sh + deploy.sh.
+    # Orion-LD 1.15.0-next (la version que corre hoy).
+    image: fiware/orion-ld:latest@sha256:ee3eec931379eac582a55acd04021183fe9ee700f2ecbd995d817c08971018cb
     hostname: orion
     container_name: orion
     depends_on:
@@ -22,7 +26,7 @@ services:
     restart: unless-stopped
 
   mongo-db:
-    image: mongo:4.4
+    image: mongo:4.4@sha256:4be76f674fc4b27859816811b8baa3c51830eb1dbf4ca81a51e26b79edd662ef
     hostname: mongo-db
     container_name: db-mongo
     # Sin 'ports': queda solo en la red interna de Docker. Publicarlo en 27017
@@ -42,7 +46,8 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    # TimescaleDB 2.30.2 sobre PostgreSQL 16 (la que creo el volumen de datos).
+    image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
     hostname: postgres
     container_name: db-postgres
     # Sin 'ports': la base de datos no se expone a la red.

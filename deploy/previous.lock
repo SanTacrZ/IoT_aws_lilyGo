@@ -1,27 +1,27 @@
 {
   "ai-agent": {
-    "id": "sha256:07785b8cc17458709be403671c79127f2dc44cdbb977ed863666e9fbae2546a2",
+    "id": "sha256:a08887e5f80a7f128fdaed8e399dc6c35bc53e13f13f697c3b2fc6258a590f28",
     "repo": "ai-agent",
-    "tag": "20261021-165317"
+    "tag": "20261021-170031"
   },
   "ai-scheduler": {
-    "id": "sha256:07785b8cc17458709be403671c79127f2dc44cdbb977ed863666e9fbae2546a2",
+    "id": "sha256:a08887e5f80a7f128fdaed8e399dc6c35bc53e13f13f697c3b2fc6258a590f28",
     "repo": "ai-agent",
-    "tag": "20261021-165317"
+    "tag": "20261021-170031"
   },
   "alert-agent": {
-    "id": "sha256:2db2be435010dd5aeba251119eba21121128d9fd61fbd7e395de735344b63c7b",
+    "id": "sha256:25951914a2094cb7c68d9ede57e0cb19e8c99139e7b3f63abece91683466295a",
     "repo": "alert-agent",
-    "tag": "20261021-165317"
+    "tag": "20261021-170031"
   },
   "frontend": {
-    "id": "sha256:bbd6618043f9911a8820f06e5a9446e24cb6178ac343429f4ebbb353465d8a2b",
+    "id": "sha256:6e6c42f70e53088165877ecd4ec31fd2b1c3eb76d64c51bf9e94d7f04e3bf2ef",
     "repo": "iot-frontend",
-    "tag": "20261021-165317"
+    "tag": "20261021-170031"
   },
   "iot-agent": {
-    "id": "sha256:de58a133760e187d6cef4c5043a1f60a5b8bace0a88d1ac4fedcf5baf638d903",
+    "id": "sha256:b9fc60fd71e6e9ffa720dbf2467928170be0c3595f087c6ccfdbd2e420b09b25",
     "repo": "iot-agent",
-    "tag": "20261021-165317"
+    "tag": "20261021-170031"
   }
 }

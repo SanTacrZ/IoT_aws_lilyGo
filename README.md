@@ -91,6 +91,42 @@ python3 -m pytest                          # pruebas unitarias
 python3 -m pytest -m e2e -s                # prueba de punta a punta contra el stack
 ```
 
+## Cómo cambiar algo sin romper el proyecto
+
+Primera vez en una máquina:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+git config core.hooksPath .githooks      # activa el hook de verificación
+```
+
+Flujo de cada cambio:
+
+1. Rama nueva: `git switch -c nombre-del-cambio`.
+2. Cambia el código y corre `bash scripts/verificar.sh` (lint, pruebas, contrato,
+   compose y firmware). Con `--e2e` prueba además contra el stack levantado.
+3. `git commit`: el hook repite la verificación rápida y bloquea secretos
+   (`.env`, `secrets.h`, `firmware/lilygo_planta/nodos/`).
+4. `bash scripts/deploy.sh`: verifica, respalda, despliega y revierte solo si
+   algo no queda sano.
+5. Si funciona, `git switch main && git merge nombre-del-cambio`; si no,
+   `bash scripts/rollback.sh` y `git switch main` (la rama queda para revisarla).
+
+| Red de seguridad | Qué atrapa |
+|---|---|
+| `tests/test_contrato.py` | un campo agregado o quitado en el firmware y olvidado en el servidor, la vista SQL o las alertas |
+| `RANGOS` del iot-agent | valores imposibles según el datasheet (HTTP 422) |
+| Migraciones idempotentes | `db/migrations/NNN_*.sql` con `IF NOT EXISTS`; se aplican con `scripts/migrate.sh` |
+| Imágenes por digest | un `pull` de terceros que cambie de versión sin avisar |
+| `deploy.sh` + `rollback.sh` | una versión que no arranca: vuelve a la anterior sin tocar los datos |
+
+**Agregar un dato nuevo del sensor:** firmware (`body +=` en `main.cpp`) → rango en
+`RANGOS` → columna en la vista (migración nueva) → regla en `reglas.py` si alerta →
+fila en `docs/SENSORES.md`. La prueba de contrato falla hasta que estén todos.
+
+**Quitarlo:** en orden inverso. Las lecturas viejas quedan en el JSON de la tabla
+`lecturas`, así que no se pierde historial.
+
 ## Alertas
 
 `alert-agent` revisa la base cada 60 s. Una alerta es un **estado**: se abre, se

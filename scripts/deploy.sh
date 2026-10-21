@@ -76,6 +76,14 @@ revertir() {
   exit 1
 }
 
+# --- 0. Verificacion ---------------------------------------------------------
+# No se despliega codigo que no pasa lint, pruebas y contrato. Para una
+# emergencia: SIN_VERIFICAR=1 bash scripts/deploy.sh
+if [[ "${SIN_VERIFICAR:-0}" != "1" ]]; then
+  log "0/5 Verificando el codigo antes de desplegar"
+  bash scripts/verificar.sh --rapido || { err "La verificacion fallo: no se despliega"; exit 1; }
+fi
+
 # --- 1. Backup -------------------------------------------------------------
 log "1/5 Backup de datos antes del despliegue"
 # Si el stack estaba parado, el backup volcaria archivos vacios: primero se

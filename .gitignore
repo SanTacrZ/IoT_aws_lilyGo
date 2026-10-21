@@ -21,3 +21,4 @@ secrets.h
 .vscode/
 .pytest_cache/
 .env.bak*
+.venv/

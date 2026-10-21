@@ -63,13 +63,13 @@ def leer_analisis(cur):
         ORDER BY entidad, created_at DESC
         """
     )
-    return [dict(zip(("entidad", "estado", "diagnostico", "accion_recomendada", "modelo"), r))
+    return [dict(zip(("entidad", "estado", "diagnostico", "accion_recomendada", "modelo"), r, strict=True))
             for r in cur.fetchall()]
 
 
 def leer_abiertas(cur):
     cur.execute(f"SELECT {', '.join(COLUMNAS)} FROM alertas WHERE resuelta_en IS NULL ORDER BY id")
-    return {r[1]: dict(zip(COLUMNAS, r)) for r in cur.fetchall()}
+    return {r[1]: dict(zip(COLUMNAS, r, strict=True)) for r in cur.fetchall()}
 
 
 def registrar_notificacion(alerta_id, canal, destino, texto, ok, error):
@@ -161,7 +161,7 @@ def _abrir(c, ahora):
             (c.clave, c.tipo, c.entidad, c.severidad, c.titulo, c.detalle, c.accion, c.valor, ahora),
         )
         fila = cur.fetchone()
-    return dict(zip(COLUMNAS, fila)) if fila else None
+    return dict(zip(COLUMNAS, fila, strict=True)) if fila else None
 
 
 def _actualizar(alerta_id, c):

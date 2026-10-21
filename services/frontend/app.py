@@ -1,4 +1,3 @@
-import base64
 import hmac
 import os
 from datetime import datetime, timezone
@@ -226,14 +225,13 @@ def panel_nodo(nodos):
     for nombre, clave, unidad in etiquetas:
         val = sens.get(clave)
         if val is None:
-            estado, color, texto = "sin-dato", "#6b6b76", "sin dato"
+            color, texto = "#6b6b76", "sin dato"
         elif clave == "satelites":
             ok_sat = val > 0
-            estado = "ok" if ok_sat else "sin-fix"
             color = "#4ade80" if ok_sat else "#fbbf24"
             texto = f"{val} sat" if ok_sat else "sin fix"
         else:
-            estado, color = "ok", "#4ade80"
+            color = "#4ade80"
             texto = f"{val} {unidad}"
         filas_sensor.append(html.Div([
             html.Span(f"{nombre}", style={'flex': '1 1 auto'}),

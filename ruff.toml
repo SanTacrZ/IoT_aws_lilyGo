@@ -1,0 +1,6 @@
+# Lint de Python: errores reales (E/F), avisos (W) y bugs comunes (B).
+# Las lineas largas se permiten: el SQL y los mensajes se leen mejor enteros.
+target-version = "py311"
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501"]

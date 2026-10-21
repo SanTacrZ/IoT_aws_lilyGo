@@ -1,0 +1,11 @@
+#!/bin/bash
+# Bloquea el commit si el lint, las pruebas o el contrato fallan, y si se
+# intenta commitear un secreto. Saltarlo a proposito: git commit --no-verify
+set -euo pipefail
+
+if git diff --cached --name-only | grep -E '(^|/)(\.env|\.env\.bak[^/]*|secrets\.h)$|^firmware/lilygo_planta/nodos/'; then
+  echo "Commit bloqueado: esos archivos llevan secretos y no van al repo." >&2
+  exit 1
+fi
+
+bash scripts/verificar.sh --rapido

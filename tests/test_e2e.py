@@ -27,8 +27,8 @@ URL = "http://localhost:5000"
 
 
 def _env():
-    return dict(l.split("=", 1) for l in (RAIZ / ".env").read_text().splitlines()
-                if "=" in l and not l.lstrip().startswith("#"))
+    return dict(linea.split("=", 1) for linea in (RAIZ / ".env").read_text().splitlines()
+                if "=" in linea and not linea.lstrip().startswith("#"))
 
 
 def _credencial():

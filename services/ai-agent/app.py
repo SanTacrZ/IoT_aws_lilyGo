@@ -14,7 +14,6 @@ Endpoints:
   POST /api/agente/analizar     fuerza un analisis ahora
   GET  /api/agente/health       estado del agente
 """
-import hashlib
 import hmac
 import json
 import logging
@@ -341,7 +340,7 @@ def _parsear_dictamen(data):
     except json.JSONDecodeError:
         m = re.search(r"\{.*\}", texto, re.S)
         if not m:
-            raise RuntimeError(f"Gemini no devolvio JSON: {texto[:160]}")
+            raise RuntimeError(f"Gemini no devolvio JSON: {texto[:160]}") from None
         obj = json.loads(m.group(0))
 
     estado = str(obj.get("estado", "")).lower()

@@ -68,8 +68,8 @@ def main():
     wifi = ""
     actual = FIRMWARE / "src/secrets.h"
     if actual.exists():
-        wifi = "\n".join(l for l in actual.read_text().splitlines()
-                         if l.startswith(("#define WIFI_SSID", "#define WIFI_PASSWORD")))
+        wifi = "\n".join(linea for linea in actual.read_text().splitlines()
+                         if linea.startswith(("#define WIFI_SSID", "#define WIFI_PASSWORD")))
     destino = FIRMWARE / "nodos" / disp / "secrets.h"
     guardar_privado(destino, f"""/* Generado por scripts/nuevo_nodo.py para {disp}. NO subir a git. */
 #pragma once

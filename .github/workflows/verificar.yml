@@ -1,0 +1,26 @@
+# Corre lo mismo que scripts/verificar.sh en cada push y pull request.
+name: verificar
+on: [push, pull_request]
+jobs:
+  servicios:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check services tests scripts
+      - run: shellcheck -S warning scripts/*.sh .githooks/pre-commit
+      - run: python -m pytest -q
+      - run: cp .env.example .env && docker compose config -q
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install platformio
+      - run: cp firmware/lilygo_planta/src/secrets.h.example firmware/lilygo_planta/src/secrets.h
+      - run: cd firmware/lilygo_planta && pio run
