@@ -78,6 +78,13 @@ revertir() {
 
 # --- 1. Backup -------------------------------------------------------------
 log "1/5 Backup de datos antes del despliegue"
+# Si el stack estaba parado, el backup volcaria archivos vacios: primero se
+# levantan las bases de datos y se espera a PostgreSQL.
+docker compose up -d postgres mongo-db >/dev/null
+for _ in $(seq 1 30); do
+  docker exec db-postgres pg_isready -q -U "${POSTGRES_USER:-iot}" 2>/dev/null && break
+  sleep 2
+done
 bash scripts/backup.sh || err "El backup fallo (sigo: los volumenes siguen intactos)"
 
 # --- 2. Snapshot de la version saliente ------------------------------------
